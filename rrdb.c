@@ -692,12 +692,38 @@ int printRRDBFileInfo(char *filename)
 
     if ( RRDBTOUCHV2 == getFileVersion( pfd ) )
     {
-      rrdbTouchHeader ourtouchheader;
-      read( pfd, &ourtouchheader, sizeof( rrdbTouchHeader ) );
+      rrdbTouchHeader *ourtouchheader;
+      rrdbTouchSet *setHeader;
+      struct stat sb;
+      char *addr, *ptr;
+      unsigned int loopcount;
 
-      printf( "RRDB V2 Touch File\n" );
-      printf( "Number of sets %i\n", ourtouchheader.sets );
-      printf( "Number of samples %i\n", ourtouchheader.samplesPerSet );
+      if ( fstat( pfd, &sb ) == -1 )           /* To obtain file size */
+      {
+        return -1;
+      }
+
+      addr = mmap(NULL, sb.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, pfd, 0);
+      if (addr == MAP_FAILED)
+      {
+        printf("ERROR: error accessing data file.\n");
+        return -1;
+      }
+
+      ourtouchheader = ( rrdbTouchHeader * ) addr;
+      setHeader = ( rrdbTouchSet * )( addr + sizeof(rrdbTouchHeader) );
+
+      printf( "2:%i:%i\n", ourtouchheader->sets, ourtouchheader->samplesPerSet );
+
+      for ( loopcount = 0; loopcount < ourtouchheader->sets; loopcount++ )
+      {
+        printf("%s:%i\n", setHeader->path, getTimePerSample( setHeader->period ) );
+        ptr = (char *)setHeader;
+        ptr += sizeof( rrdbTouchSet ) + ( ourtouchheader->samplesPerSet * sizeof( rrdbInt ) );
+        setHeader = ( rrdbTouchSet * ) ptr;
+      }
+
+      munmap( ( char * ) addr, sb.st_size );
 
       lseek(pfd, 0, SEEK_SET);
       lockf(pfd, F_ULOCK, 1);

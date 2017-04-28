@@ -10,6 +10,7 @@
 #define MAXCOMMANDLENGTH 600
 #define TOUCHDEFAULTSAMPLECOUNT 2000
 #define TOUCHMAXDEFAULTSETS 50
+#define TOUCHMAXPATHLENGTH 100
 
 
 #define TRUE 1
@@ -96,7 +97,7 @@ typedef struct rrdbTouchSet
 
 
   /* The name of the header which will be passed to us. */
-  char path[MAXVALUESTRING];
+  char path[TOUCHMAXPATHLENGTH];
 
   /* RRDBTimePeriods For now we will probably only support 1 hour and 1 day */
   unsigned int period;

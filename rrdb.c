@@ -248,7 +248,7 @@ int printRRDBTouchFile(int pfd, char * path, char * period)
       continue;
     }
 
-    if ( setHeader->period == iperiod )
+    if ( setHeader->period != iperiod )
     {
       ptr += sizeof( rrdbTouchSet ) + ( header->samplesPerSet * sizeof( rrdbInt ) );
       continue;

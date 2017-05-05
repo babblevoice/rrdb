@@ -1905,7 +1905,11 @@ int waitForInput(char *dir)
     result = strtok( NULL, delims );
     if ( NULL != result )
     {
-        sampleCount = atoi(result);
+      /* Just in case this is a v2 touch. */
+      strcpy( &period[0], result );
+
+      /* or not */
+      sampleCount = atoi(result);
     }
 
     if ( CREATE == ourCommand || TOUCH == ourCommand )

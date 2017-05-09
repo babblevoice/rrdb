@@ -1506,6 +1506,7 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
   char *pathitem, *perioditem;
   char *pathitem_save_ptr, *perioditem_save_ptr;
   char *addr, *ptr;
+  char periodcopy[MAXVALUESTRING];
   unsigned int i;
   unsigned int setsize = 0;
   off_t truncateby = 0;
@@ -1579,11 +1580,14 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
   }
 
   pathitem_save_ptr = NULL;
+  // We only use path once, so it doesn't matter that strtok_r overwrites it
   pathitem = strtok_r( path, "/", &pathitem_save_ptr );
   while( NULL != pathitem )
   {
     perioditem_save_ptr = NULL;
-    perioditem = strtok_r( period, ",", &perioditem_save_ptr );
+    strcpy( periodcopy, period );
+    perioditem = strtok_r( periodcopy, ",", &perioditem_save_ptr );
+
     while( NULL != perioditem )
     {
       if ( 0 == strcmp( perioditem, "FIVEMINUTE" ) )

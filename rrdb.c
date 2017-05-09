@@ -1611,7 +1611,7 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
         iperiod = ONEHOUR;
       }
 
-      findTouchSet(pfd, path, iperiod, maxsets);
+      findTouchSet(pfd, pathitem, iperiod, maxsets);
       perioditem = strtok_r( NULL, ",", &perioditem_save_ptr );
     }
     pathitem = strtok_r( NULL, "/", &pathitem_save_ptr );
@@ -1761,7 +1761,11 @@ int runCommand(char *filename, RRDBCommand ourCommand, unsigned int sampleCount,
             break;
 
         case INFO:
-            printRRDBFileInfo(filename);
+            if ( -1 == printRRDBFileInfo(filename) )
+            {
+              printf("ERROR: failed to read rrdb data\n");
+              return -1;
+            }
 
             break;
 

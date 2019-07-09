@@ -2083,6 +2083,7 @@ int main(int argc, char **argv)
             exit(1);
         }
         strcpy( &filename[0], optarg );
+	break;
 
       case 5:
         /* values */

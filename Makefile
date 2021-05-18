@@ -1,13 +1,28 @@
-WARN    := -W -Wall -Wstrict-prototypes -Wmissing-prototypes
+
+
+WARN    := -Wall -Wstrict-prototypes -Wmissing-prototypes
 INCLUDE := -isystem /lib/modules/`uname -r`/build/include
 
-DEBUGFLAGS := -g
-CFLAGS  := -O2 ${WARN} ${INCLUDE} ${DEBUGFLAGS}
+DEBUG:=-DDEBUG -g3
+RELEASE:=-O3
+
+CFLAGS  := ${WARN} ${INCLUDE}
 CC      := gcc
 OBJS    := ${patsubst %.c, %.o, ${wildcard *.c}}
 LD			:= gcc
-LDFLAGS	:= -O -o rrdb
+LDFLAGS	:= -o rrdb
 
+.PHONY: multi
+multi:
+	$(MAKE) -j$(CPUCOUNT) default
+
+debug: CFLAGS += $(DEBUG)
+debug: all
+
+release: CFLAGS += $(RELEASE)
+release: all
+
+default: release
 
 all: ${OBJS}
 	$(LD) $(LDFLAGS) *.o

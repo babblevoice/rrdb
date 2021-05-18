@@ -46,7 +46,7 @@ typedef enum {RRDBV1 = 1, RRDBTOUCHV2} RRDBVersions;
 typedef struct rrdbHeader
 {
   /*
-   Just check the file looks sencible.
+   File version and check the file looks sensible.
    */
 	int fileVersion;
   /*
@@ -164,5 +164,9 @@ rrdbNumber calcRRDBSum(struct timeval* start, struct timeval *end, rrdbFile *fil
 rrdbNumber calcRRDBMean(struct timeval* start, struct timeval *end, rrdbFile *fileData, unsigned int setIndex);
 rrdbNumber calcRRDBMin(struct timeval* start, struct timeval *end, rrdbFile *fileData, unsigned int setIndex);
 rrdbNumber calcRRDBMax(struct timeval* start, struct timeval *end, rrdbFile *fileData, unsigned int setIndex);
+
+/* Util */
+#define MIN(a,b) (((a)<(b))?(a):(b))
+#define MAX(a,b) (((a)>(b))?(a):(b))
 
 #endif /* RRDB_H */

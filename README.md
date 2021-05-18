@@ -112,8 +112,8 @@ info test.rrdb
 
 Version 2 introduced a new method - touch. The two types of file cannot be mixed. V2 Touch addresses named columns (paths) which maybe 'touched' (i.e. an event has occurred with reference to the column).
 
-Records a count against a path (the named column). The path is comma delimitered, so that it will record a touch against the whole touchpath and also each item
-which is comma delimitered. Unlike version 1, V2 Touch does not need a seperate create and update there is only a touch command (well fetch as well).
+Records a count against a path (the named column). The path is comma delimitated, so that it will record a touch against the whole touchpath and also each item
+which is comma delimitated. Unlike version 1, V2 Touch does not need a separate create and update there is only a touch command (well fetch as well).
 
 truncate: the number of sets after which it will start to re-use older non used sets
 touchpath: the string we are counting against.
@@ -123,6 +123,9 @@ touchpath: the string we are counting against.
 Command line:
 rrdb --command=touch --dir=/data/rrd --filename=nick.rrdb --touchpath=test
 rrdb --command=touch --dir=/data/rrd --filename=nick.rrdb --touchpath=tech,support --samplecount=2000 --period=ONEHOUR,ONEDAY --setcount=50
+
+And fetch the data of a specific path and period:
+rrdb --dir=./ --filename=nick.rrdb --command=fetch --touchpath=emisbookingsuccessful --period=ONEDAY
 
 In pipe mode, these are the equivalent commands
 

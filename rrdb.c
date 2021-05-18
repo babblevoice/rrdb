@@ -1,5 +1,4 @@
 
-#define _GNU_SOURCE
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,18 +9,17 @@
 
 #include <unistd.h>
 #include <getopt.h>
-#include <linux/limits.h>
-
-#include<signal.h>
+#include <signal.h>
 
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include <string.h>
-
 #include <sys/time.h>
 #include <errno.h>
 #include <sys/mman.h>
+
+#define PATH_MAX 4096
+#define NAME_MAX 4096
 
 #include "rrdb.h"
 
@@ -307,7 +305,7 @@ int printRRDBFileXform(rrdbFile *fileData, unsigned int index)
     unsigned int i;
     unsigned int windowPos = 0;
 
-    if ( index > fileData->xformheader.xformCount )
+    if ( index >= fileData->xformheader.xformCount )
     {
         printf("ERROR: xform index out of bounds\n");
         return -1;
@@ -803,240 +801,6 @@ int printRRDBFileInfo(char *filename)
 }
 
 
-
-/************************************************************************************
- * Function: calcRRDBCount
- *
- * Calulate the count of all entrie within a time, count an return them.
- *
- * Written: 11th March 2013 By: Nick Knight
- ************************************************************************************/
-rrdbNumber calcRRDBCount(struct timeval* start, struct timeval *end, rrdbFile *fileData, unsigned int setIndex)
-{
-    UNUSED(setIndex);
-    rrdbNumber retval = 0;
-    unsigned int i;
-
-    unsigned int windowPos = 0;
-
-    for ( i = 0 ; i < fileData->header.sampleCount; i++ )
-    {
-        /* + 1 so that we loop back round to the start and print them in time order */
-        /* thanks http://www.yourdailygeekery.com/2011/06/28/modulo-of-negative-numbers.html - mod negative numbers*/
-
-        windowPos = ((fileData->header.windowPosition - i) + fileData->header.sampleCount) % fileData->header.sampleCount;
-
-        if ( TRUE == fileData->times[windowPos].valid )
-        {
-            if ( (fileData->times[windowPos].time + (fileData->times[windowPos].uSecs/1000000)) >= (start->tv_sec + (start->tv_usec/1000000))
-                && (fileData->times[windowPos].time + (fileData->times[windowPos].uSecs/1000000)) < (end->tv_sec + (end->tv_usec/1000000)) )
-            {
-                retval ++;
-            }
-            else
-            {
-                /* we store the values in time order so we can bomb out when this happens */
-                break;
-            }
-        }
-        else
-        {
-            break;
-        }
-    }
-
-
-
-    return retval;
-}
-
-/************************************************************************************
- * Function: calcRRDBSum
- *
- * Calulate the sum of all entries within a time, count an return them.
- *
- * Written: 11th March 2013 By: Nick Knight
- ************************************************************************************/
-rrdbNumber calcRRDBSum(struct timeval* start, struct timeval *end, rrdbFile *fileData, unsigned int setIndex)
-{
-    rrdbNumber retval = 0;
-    unsigned int i;
-
-    unsigned int windowPos = 0;
-
-
-    for ( i = 0 ; i < fileData->header.sampleCount; i++ )
-    {
-        /* + 1 so that we loop back round to the start and print them in time order */
-        windowPos = ((fileData->header.windowPosition - i) + fileData->header.sampleCount) % fileData->header.sampleCount;
-
-        if ( TRUE == fileData->times[windowPos].valid )
-        {
-            if ( (fileData->times[windowPos].time + (fileData->times[windowPos].uSecs/1000000)) >= (start->tv_sec + (start->tv_usec/1000000))
-                && (fileData->times[windowPos].time + (fileData->times[windowPos].uSecs/1000000)) < (end->tv_sec + (end->tv_usec/1000000)) )
-            {
-                retval += fileData->sets[setIndex][windowPos];
-            }
-            else
-            {
-                /* we store the values in time order so we can bomb out when this happens */
-                break;
-            }
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    return retval;
-}
-
-/************************************************************************************
- * Function: calcRRDBMean
- *
- * Calulate the mean of all entries within a time, count an return them.
- *
- * Written: 11th March 2013 By: Nick Knight
- ************************************************************************************/
-rrdbNumber calcRRDBMean(struct timeval* start, struct timeval *end, rrdbFile *fileData, unsigned int setIndex)
-{
-    rrdbNumber retval = 0;
-    unsigned int i;
-    unsigned int count = 0;
-
-    unsigned int windowPos = 0;
-
-
-    for ( i = 0 ; i < fileData->header.sampleCount; i++ )
-    {
-        /* + 1 so that we loop back round to the start and print them in time order */
-        windowPos = ((fileData->header.windowPosition - i) + fileData->header.sampleCount) % fileData->header.sampleCount;
-
-        if ( TRUE == fileData->times[windowPos].valid )
-        {
-            if ( (fileData->times[windowPos].time + (fileData->times[windowPos].uSecs/1000000)) >= (start->tv_sec + (start->tv_usec/1000000))
-                && (fileData->times[windowPos].time + (fileData->times[windowPos].uSecs/1000000)) < (end->tv_sec + (end->tv_usec/1000000)) )
-            {
-                retval += fileData->sets[setIndex][windowPos];
-                count++;
-            }
-            else
-            {
-                /* we store the values in time order so we can bomb out when this happens */
-                break;
-            }
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    retval = retval/count;
-
-    return retval;
-}
-
-
-/************************************************************************************
- * Function: calcRRDBMin
- *
- * Calulate the min of all entries within a time, count an return them.
- *
- * Written: 11th March 2013 By: Nick Knight
- ************************************************************************************/
-rrdbNumber calcRRDBMin(struct timeval* start, struct timeval *end, rrdbFile *fileData, unsigned int setIndex)
-{
-    rrdbNumber retval = 0;
-    unsigned int i;
-    unsigned int firstVal = FALSE;
-
-    unsigned int windowPos = 0;
-
-
-    for ( i = 0 ; i < fileData->header.sampleCount; i++ )
-    {
-        /* + 1 so that we loop back round to the start and print them in time order */
-        windowPos = ((fileData->header.windowPosition - i) + fileData->header.sampleCount) % fileData->header.sampleCount;
-
-        if ( TRUE == fileData->times[windowPos].valid )
-        {
-            if ( (fileData->times[windowPos].time + (fileData->times[windowPos].uSecs/1000000)) >= (start->tv_sec + (start->tv_usec/1000000))
-                && (fileData->times[windowPos].time + (fileData->times[windowPos].uSecs/1000000)) < (end->tv_sec + (end->tv_usec/1000000)) )
-            {
-                if ( !firstVal )
-                {
-                    retval = fileData->sets[setIndex][windowPos];
-                    firstVal = TRUE;
-                }
-
-                if ( retval > fileData->sets[setIndex][windowPos] )
-                {
-                    retval = fileData->sets[setIndex][windowPos];
-                }
-            }
-            else
-            {
-                /* we store the values in time order so we can bomb out when this happens */
-                break;
-            }
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    return retval;
-}
-
-/************************************************************************************
- * Function: calcRRDBMax
- *
- * Calulate the max of all entries within a time, count an return them.
- *
- * Written: 11th March 2013 By: Nick Knight
- ************************************************************************************/
-rrdbNumber calcRRDBMax(struct timeval* start, struct timeval *end, rrdbFile *fileData, unsigned int setIndex)
-{
-    rrdbNumber retval = 0;
-    unsigned int i;
-
-    unsigned int windowPos = 0;
-
-
-    for ( i = 0 ; i < fileData->header.sampleCount; i++ )
-    {
-        /* + 1 so that we loop back round to the start and print them in time order */
-        windowPos = ((fileData->header.windowPosition - i) + fileData->header.sampleCount) % fileData->header.sampleCount;
-
-        if ( TRUE == fileData->times[windowPos].valid )
-        {
-            if ( (fileData->times[windowPos].time + (fileData->times[windowPos].uSecs/1000000)) >= (start->tv_sec + (start->tv_usec/1000000))
-                && (fileData->times[windowPos].time + (fileData->times[windowPos].uSecs/1000000)) < (end->tv_sec + (end->tv_usec/1000000)) )
-            {
-                if ( retval < fileData->sets[setIndex][windowPos] )
-                {
-                    retval = fileData->sets[setIndex][windowPos];
-                }
-            }
-            else
-            {
-                /* we store the values in time order so we can bomb out when this happens */
-                break;
-            }
-        }
-        else
-        {
-            break;
-        }
-    }
-
-    return retval;
-}
-
-
 /************************************************************************************
  * Function: updateRRDBFile
  *
@@ -1054,13 +818,15 @@ int updateRRDBFile(char *filename, char* vals)
     const char delims[] = ":";
     struct timeval t1;
 
-    struct timeval xformstart, xformend;
+    struct timeval xformstart;
     rrdbNumber xformResult;
 
     struct tm *current_tm;
     time_t current_time;
 
     int pfd;
+
+    xformstart = (struct timeval){0};
 
     if ((pfd = open(filename, O_RDWR )) == -1)
     {
@@ -1120,7 +886,6 @@ int updateRRDBFile(char *filename, char* vals)
     for ( i = 0; i < fileData.xformheader.xformCount; i++)
     {
         current_tm = gmtime(&current_time);
-        xformend.tv_usec = 0;
 
         switch (fileData.xforms[i].period) {
             case FIVEMINUTE:
@@ -1131,8 +896,6 @@ int updateRRDBFile(char *filename, char* vals)
 
                 xformstart.tv_sec = mktime(current_tm);
                 xformstart.tv_usec = 0;
-
-                xformend.tv_sec = xformstart.tv_sec + ( 60 * 5);
                 break;
 
             case ONEHOUR:
@@ -1141,8 +904,6 @@ int updateRRDBFile(char *filename, char* vals)
 
                 xformstart.tv_sec = mktime(current_tm);
                 xformstart.tv_usec = 0;
-
-                xformend.tv_sec = xformstart.tv_sec + ( 60 * 60);
                 break;
 
             case SIXHOUR:
@@ -1152,8 +913,6 @@ int updateRRDBFile(char *filename, char* vals)
 
                 xformstart.tv_sec = mktime(current_tm);
                 xformstart.tv_usec = 0;
-
-                xformend.tv_sec = xformstart.tv_sec + ( 60 * 60 * 6);
                 break;
 
             case TWELVEHOUR:
@@ -1163,8 +922,6 @@ int updateRRDBFile(char *filename, char* vals)
 
                 xformstart.tv_sec = mktime(current_tm);
                 xformstart.tv_usec = 0;
-
-                xformend.tv_sec = xformstart.tv_sec + ( 60 * 60 * 12);
                 break;
 
             case ONEDAY:
@@ -1174,8 +931,6 @@ int updateRRDBFile(char *filename, char* vals)
 
                 xformstart.tv_sec = mktime(current_tm);
                 xformstart.tv_usec = 0;
-
-                xformend.tv_sec = xformstart.tv_sec + ( 60 * 60 * 24);
                 break;
 
             default:
@@ -1183,45 +938,101 @@ int updateRRDBFile(char *filename, char* vals)
         }
 
         xformResult = 0;
+
+        /*
+         The value should be placed in the current windowed position, if still valid (i.e. updated)
+         or if it is now outside the time window moved on 1.
+         */
+        unsigned int writeWindowPosition = fileData.xforms[i].windowPosition;
+        int movedon = FALSE;
+        if( fileData.xformtimes[i][fileData.xforms[i].windowPosition].time != xformstart.tv_sec )
+        {
+            /* we need to move on the window... */
+            writeWindowPosition = (fileData.xforms[i].windowPosition + 1 ) % fileData.header.sampleCount;
+            movedon = TRUE;
+        }
+
         switch (fileData.xforms[i].calc) {
             case RRDBMAX:
-                xformResult = calcRRDBMax(&xformstart, &xformend, &fileData, fileData.xforms[i].setIndex);
+                if( TRUE == movedon )
+                {
+                  xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
+                }
+                else
+                {
+                  xformResult = MAX( fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition],
+                                     fileData.xformdata[i][writeWindowPosition] );
+                }
                 break;
 
             case RRDBMIN:
-                xformResult = calcRRDBMin(&xformstart, &xformend, &fileData, fileData.xforms[i].setIndex);
+                if( TRUE == movedon )
+                {
+                  xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
+                }
+                else
+                {
+                  xformResult = MIN( fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition],
+                                     fileData.xformdata[i][writeWindowPosition] );
+                }
                 break;
 
             case RRDBCOUNT:
-                xformResult = calcRRDBCount(&xformstart, &xformend, &fileData, 0);
+                if( TRUE == movedon )
+                {
+                  xformResult = 1;
+                }
+                else
+                {
+                  xformResult = fileData.xformdata[i][writeWindowPosition] + 1;
+                }
+
                 break;
 
             case RRDBMEAN:
-                xformResult = calcRRDBMean(&xformstart, &xformend, &fileData, fileData.xforms[i].setIndex);
-                break;
+            {
+                unsigned int countWindowPosition = (writeWindowPosition + 1) % fileData.header.sampleCount;
+                if( TRUE == movedon )
+                {
+                  /* We use the next slot to store our running count so we can add to the average - and hide it */
+                  fileData.xformtimes[i][countWindowPosition].valid = FALSE;
+                  fileData.xformdata[i][countWindowPosition] = 1;
+                  xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
+                }
+                else
+                {
+                  rrdbNumber countinmean = fileData.xformdata[i][countWindowPosition];
+                  if( countinmean <= 0 ) countinmean = 1; /* allow for corruption */
+                  rrdbNumber reversemean = fileData.xformdata[i][writeWindowPosition] * countinmean;
+                  rrdbNumber newval = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
+                  xformResult = ( reversemean + newval ) /
+                                ( countinmean + 1 );
 
+                  fileData.xformdata[i][countWindowPosition]++;
+                }
+                break;
+            }
             case RRDBSUM:
-                xformResult = calcRRDBSum(&xformstart, &xformend, &fileData, fileData.xforms[i].setIndex);
+                if( TRUE == movedon )
+                {
+                  xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
+                }
+                else
+                {
+                  xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition] +
+                                     fileData.xformdata[i][writeWindowPosition];
+                }
                 break;
 
             default:
                 break;
         }
 
-        /*
-         The value should be placed in the current windowed position, if still valid (i.e. updated)
-         or if it is now outside the time window moved on 1.
-         */
-        if( fileData.xformtimes[i][fileData.xforms[i].windowPosition].time != xformstart.tv_sec )
-        {
-            /* we need to move on the window... */
-            fileData.xforms[i].windowPosition = (fileData.xforms[i].windowPosition + 1 ) % fileData.header.sampleCount;
-        }
-        fileData.xformdata[i][fileData.xforms[i].windowPosition] = xformResult;
-
-        fileData.xformtimes[i][fileData.xforms[i].windowPosition].time = xformstart.tv_sec;
-        fileData.xformtimes[i][fileData.xforms[i].windowPosition].uSecs = 0;
-        fileData.xformtimes[i][fileData.xforms[i].windowPosition].valid = TRUE;
+        fileData.xformdata[i][writeWindowPosition] = xformResult;
+        fileData.xformtimes[i][writeWindowPosition].time = xformstart.tv_sec;
+        fileData.xformtimes[i][writeWindowPosition].uSecs = 0;
+        fileData.xformtimes[i][writeWindowPosition].valid = TRUE;
+        fileData.xforms[i].windowPosition = writeWindowPosition;
     }
 
     /*
@@ -1454,7 +1265,7 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
     }
 
     munmap( ( char * ) addr, sb.st_size );
-    fallocate( pfd, 0, sb.st_size, sizeof( rrdbTouchSet ) + ( sizeof( rrdbInt ) * samplesPerSet ) );
+    posix_fallocate( pfd, sb.st_size, sizeof( rrdbTouchSet ) + ( sizeof( rrdbInt ) * samplesPerSet ) );
 
     if ( fstat( pfd, &sb ) == -1 )           /* To obtain file size */
     {
@@ -1542,7 +1353,7 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
 
   if ( 0 == sb.st_size )
   {
-    fallocate( pfd, 0, 0, sizeof(rrdbTouchHeader) );
+    posix_fallocate( pfd, 0, sizeof(rrdbTouchHeader) );
 
     if ( fstat( pfd, &sb ) == -1 )           /* To obtain file size */
     {

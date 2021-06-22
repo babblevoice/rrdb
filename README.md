@@ -26,7 +26,7 @@ Which would return:
 1494604800:1
 
 or:
-rrdb --command=fetch --dir=/data/rrd --filename=test.rrdb 
+rrdb --command=fetch --dir=/data/rrd --filename=test.rrdb
 1494606092.19696:12
 
 
@@ -36,7 +36,7 @@ rrdb --command=fetch --dir=/data/rrd --filename=test.rrdb
 In pipe mode it waits for user input as described in the following commands. This is so that it can be run as a server.
 
 ## command filename params (specific to command)
-## create 
+## create
 
 Create a new data file, the details about how to store are provided. Set count (how many data sets) sample count(how many historical points
 to keep). xforms - storage of averages sums etc.
@@ -70,6 +70,14 @@ rrdb --command=create --dir=/data/rrd --filename=nick.rrdb --setcount=0 --sample
 ## update
 
 Updates the database with some data.
+
+## modify
+
+This shouldn't be used for general use - but we have had cases where corrupt data can creep in (from the calling application) and the user wants to get rid of it as it can throw renderin of graphs out.
+
+rrdb --command=modify --dir=/data/rrd --filename=babblegroup_1:queue_abandoned.rrdb --values=1624024800:0 --xform=0
+
+The value to be modified is indexed by either raw or a particular xform. the by time followed by the new value.
 
 ### Examples
 
@@ -135,6 +143,6 @@ touch <filename> <setcount> <samplecount> <path> <period>
 
 # Building
 
-On Linux, with build tools installed, go into src folder 
+On Linux, with build tools installed, go into src folder
 make
 make install

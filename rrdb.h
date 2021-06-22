@@ -31,9 +31,11 @@ typedef unsigned short rrdbTimemSeconds;
   UPDATE: add data to a standard (v1) RRDB file
   FETCH: fetch data from the specified file
   INFO: report details regarding file
+	TOUCH: touch the path - i.e. count it
+	MODIFY: index by data or xform and timestamp
   HI: add count to count set (for a count (v2) file)
 */
-typedef enum {PIPE, CREATE, UPDATE, FETCH, INFO, TOUCH} RRDBCommand;
+typedef enum {PIPE, CREATE, UPDATE, FETCH, INFO, TOUCH, MODIFY} RRDBCommand;
 
 /*
  * Versions of files, including format.
@@ -144,6 +146,7 @@ int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount
 int readRRDBFile(int pfd, rrdbFile *fileData); /* RRDB V1 */
 int writeRRDBFile(int pfd, rrdbFile *fileData);
 int updateRRDBFile(char *filename, char* vals);
+int modifyRRDBFile(char *filename, char* vals, char* xform);
 int freeRRDBFile(rrdbFile *fileData);
 int printRRDBFile(rrdbFile *fileData);
 int printRRDBFileInfo(char *filename);

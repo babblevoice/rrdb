@@ -336,8 +336,8 @@ int printRRDBFileXform(rrdbFile *fileData, unsigned int index)
 int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount , char *xformations)
 {
   int pfd;
-	rrdbFile fileData;
-	long long totalSizeRequired;
+  rrdbFile fileData;
+  long long totalSizeRequired;
   unsigned int setCountSize;
 
   char *result = NULL;
@@ -346,8 +346,8 @@ int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount
   unsigned int i;
   unsigned int setIndexRequired;
 
-	fileData.header.fileVersion = RRDBV1;
-	fileData.header.windowPosition = 0;
+  fileData.header.fileVersion = RRDBV1;
+  fileData.header.windowPosition = 0;
   fileData.header.setCount = setCount;
   fileData.header.sampleCount = sampleCount;
   fileData.xformheader.xformCount = 0;
@@ -381,11 +381,11 @@ int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount
         fileData.xforms[i].calc = RRDBMAX;
         setIndexRequired = TRUE;
     }
-  	else if ( 0 == strcmp("RRDBMIN", result))
-  	{
-  		fileData.xforms[i].calc = RRDBMIN;
-  		setIndexRequired = TRUE;
-  	}
+    else if ( 0 == strcmp("RRDBMIN", result))
+    {
+      fileData.xforms[i].calc = RRDBMIN;
+      setIndexRequired = TRUE;
+    }
     else if ( 0 == strcmp("RRDBCOUNT", result))
     {
         fileData.xforms[i].calc = RRDBCOUNT;
@@ -482,7 +482,7 @@ int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount
   }
   freeRRDBFile(&fileData);
 
-	return pfd;
+  return pfd;
 }
 
 
@@ -503,19 +503,19 @@ int writeRRDBFile(int pfd, rrdbFile *fileData)
   lseek(pfd, 0, SEEK_SET);
 
   if ( sizeof(rrdbHeader) != write(pfd, &fileData->header, sizeof(rrdbHeader)) )
-	{
+  {
     printf("ERROR: failed to write header to file\n");
-		return -1;
-	}
+    return -1;
+  }
 
   /* write time points ( and valid flags etc ) */
   totalSizeRequired = ( fileData->header.sampleCount * sizeof (rrdbTimePoint));
 
   if ( totalSizeRequired != write(pfd, fileData->times, totalSizeRequired) )
-	{
+  {
     printf("ERROR: failed to write time data to file\n");
-		return -1;
-	}
+    return -1;
+  }
 
   /* now write data */
   setCountSize = ( fileData->header.sampleCount * sizeof (rrdbNumber));
@@ -570,22 +570,22 @@ int writeRRDBFile(int pfd, rrdbFile *fileData)
  ************************************************************************************/
 int readRRDBFile(int pfd, rrdbFile *fileData)
 {
-	ssize_t amount_read = 0;
+  ssize_t amount_read = 0;
   long long totalSizeRequired;
   long long setCountSize;
   unsigned int i;
 
-	amount_read = read(pfd, &fileData->header, sizeof(rrdbHeader));
+  amount_read = read(pfd, &fileData->header, sizeof(rrdbHeader));
 
-	if ( sizeof(rrdbHeader) != amount_read )
-	{
-        printf("ERROR: failed to read a RRDB header - there must be one??\n");
-		/* failure */
-		lseek(pfd, 0, SEEK_SET);
-        lockf(pfd, F_ULOCK, 1);
-        close(pfd);
-		return -1;
-	}
+  if ( sizeof(rrdbHeader) != amount_read )
+  {
+      printf("ERROR: failed to read a RRDB header - there must be one??\n");
+      /* failure */
+      lseek(pfd, 0, SEEK_SET);
+      lockf(pfd, F_ULOCK, 1);
+      close(pfd);
+      return -1;
+  }
 
   /* read time data */
   totalSizeRequired = ( fileData->header.sampleCount * sizeof (rrdbTimePoint));
@@ -662,7 +662,7 @@ int readRRDBFile(int pfd, rrdbFile *fileData)
   }
 
 
-	return pfd;
+  return pfd;
 }
 
 /************************************************************************************
@@ -732,9 +732,9 @@ int printRRDBFileInfo(char *filename)
     readRRDBFile(pfd, &fileData);
 
     printf("Version is %i\n", fileData.header.fileVersion);
-  	printf("Number of sets %i\n", fileData.header.setCount);
-  	printf("Number of samples %i\n", fileData.header.sampleCount);
-  	printf("Current window position %i\n", fileData.header.windowPosition);
+    printf("Number of sets %i\n", fileData.header.setCount);
+    printf("Number of samples %i\n", fileData.header.sampleCount);
+    printf("Current window position %i\n", fileData.header.windowPosition);
     printf("Contains #%i xformations\n", fileData.xformheader.xformCount);
 
     for ( i = 0 ; i < fileData.xformheader.xformCount; i++ )
@@ -791,6 +791,122 @@ int printRRDBFileInfo(char *filename)
                 break;
         }
     }
+
+    freeRRDBFile(&fileData);
+    lseek(pfd, 0, SEEK_SET);
+    lockf(pfd, F_ULOCK, 1);
+    close(pfd);
+
+    return 1;
+}
+
+/************************************************************************************
+ * Function: modifyRRDBFile
+ * Written: 22nd June 2021 By: Nick Knight
+ ************************************************************************************/
+int modifyRRDBFile(char *filename, char* vals, char* xform)
+{
+    rrdbFile fileData;
+    int ixform;
+    int pfd;
+
+    if ((pfd = open(filename, O_RDWR )) == -1)
+    {
+      /* failure - should only ouput one error - perhaps need to put this somewhere else?
+            printf("ERROR: failed to open %s for O_RDWR\n", filename);*/
+      return -1;
+    }
+
+    /* Lock */
+    lockf(pfd, F_LOCK, 1);
+
+    if ( RRDBTOUCHV2 == getFileVersion( pfd ) )
+    {
+        printf("Unsupported version V2\n");
+        goto finishmodify;
+    }
+
+    readRRDBFile(pfd, &fileData);
+
+    printf("Version is %i\n", fileData.header.fileVersion);
+    printf("Number of sets %i\n", fileData.header.setCount);
+    printf("Number of samples %i\n", fileData.header.sampleCount);
+    printf("Current window position %i\n", fileData.header.windowPosition);
+    printf("Contains #%i xformations\n", fileData.xformheader.xformCount);
+
+    // vals == "time:val" i.e. "1234:111"
+    // OR
+    // 1234.33:111 - raw data has a usec component also
+    char *token;
+    time_t indextime = 0;
+    rrdbTimemSeconds usec = 0;
+
+    if( NULL != strchr( vals, '.' ) )
+    {
+        token = strtok( vals, "." );
+        indextime = atol( token );
+
+        token = strtok( NULL, ":" );
+        usec = atoi( token );
+    }
+    else
+    {
+        token = strtok( vals, ":" );
+        indextime = atol( token );
+    }
+    token = strtok( NULL, ":" );
+    long double newvalue = atof( token );
+
+    if( strlen(xform) > 0 )
+    {
+      ixform = atoi(xform);
+      printf("Modifying xform %i, time %ld, new value %Lf\n", ixform, indextime, newvalue );
+
+      if( ixform > fileData.xformheader.xformCount )
+      {
+        printf("xform out of range\n");
+        goto finishmodify;
+      }
+
+      for ( int i = 0 ; i < fileData.header.sampleCount; i++ )
+      {
+        if( indextime == fileData.xformtimes[ixform][i].time )
+        {
+          printf("Modifying %ld:%Lf\n", fileData.xformtimes[ixform][i].time, fileData.xformdata[ixform][i] );
+          fileData.xformdata[ixform][i] = newvalue;
+          goto finishmodify;
+        }
+      }
+      goto finishnomodify;
+    }
+
+    printf("Modifying raw data, time %ld.%i, with new value %Lf\n", indextime, usec, newvalue );
+    for ( int i = 0 ; i < fileData.header.sampleCount; i++ )
+    {
+      if ( 1 == fileData.times[i].valid )
+      {
+        if( indextime == fileData.times[i].time &&
+            usec == fileData.times[i].uSecs )
+        {
+          for ( int j = 0 ; j < fileData.header.setCount; j++ )
+          {
+            printf("Modifying raw data time %ld.%i ;old value %Lf; new value %Lf\n", fileData.times[i].time, fileData.times[i].uSecs, fileData.sets[j][i], newvalue );
+            fileData.sets[j][i] = newvalue;
+          }
+          goto finishmodify;
+        }
+      }
+    }
+
+    goto finishnomodify;
+
+finishmodify:
+
+    if ( -1 == writeRRDBFile(pfd, &fileData) )
+    {
+        printf("ERROR: could no write data to RRDB file\n");
+    }
+finishnomodify:
 
     freeRRDBFile(&fileData);
     lseek(pfd, 0, SEEK_SET);
@@ -1575,6 +1691,14 @@ int runCommand(char *filename, RRDBCommand ourCommand, unsigned int sampleCount,
 
             break;
 
+        case MODIFY:
+            if ( -1 ==  modifyRRDBFile(filename, values, xformations))
+            {
+                printf("ERROR: failed to update rrdb data\n");
+                return -1;
+            }
+            break;
+
         case INFO:
             if ( -1 == printRRDBFileInfo(filename) )
             {
@@ -1787,7 +1911,7 @@ static void sigHandler(int signo)
  ************************************************************************************/
 int main(int argc, char **argv)
 {
-	char c;
+  char c;
   RRDBCommand ourCommand;
 
   unsigned int setCount = 0;
@@ -1835,11 +1959,11 @@ int main(int argc, char **argv)
   /* default */
   ourCommand = PIPE;
 
-	while ((c = getopt_long(argc, argv, "",
+  while ((c = getopt_long(argc, argv, "",
                             long_options, &option_index)) != -1)
-	{
-		switch (c)
-		{
+  {
+    switch (c)
+    {
       case 0:
         if ( 0 == strcmp("-", optarg) )
         {
@@ -1864,6 +1988,10 @@ int main(int argc, char **argv)
         else if ( 0 == strcmp("touch", optarg) )
         {
           ourCommand = TOUCH;
+        }
+        else if ( 0 == strcmp("modify", optarg) )
+        {
+          ourCommand = MODIFY;
         }
 
         break;
@@ -1894,7 +2022,7 @@ int main(int argc, char **argv)
             exit(1);
         }
         strcpy( &filename[0], optarg );
-	break;
+  break;
 
       case 5:
         /* values */
@@ -1934,8 +2062,8 @@ int main(int argc, char **argv)
       default:
         /* Unknown option */
         exit(1);
-		}
-	}
+    }
+  }
 
   if ( PIPE == ourCommand )
   {
@@ -1960,5 +2088,5 @@ int main(int argc, char **argv)
   close(STDOUT_FILENO);
   close(STDERR_FILENO);
 
-	return 0;
+  return 0;
 }

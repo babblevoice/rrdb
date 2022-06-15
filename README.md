@@ -71,6 +71,11 @@ rrdb --command=create --dir=/data/rrd --filename=nick.rrdb --setcount=0 --sample
 
 Updates the database with some data.
 
+### Examples
+
+Pipe mode:
+update test.rrdb 0:1
+
 ## modify
 
 This shouldn't be used for general use - but we have had cases where corrupt data can creep in (from the calling application) and the user wants to get rid of it as it can throw renderin of graphs out.
@@ -146,3 +151,11 @@ touch <filename> <setcount> <samplecount> <path> <period>
 On Linux, with build tools installed, go into src folder
 make
 make install
+
+# Docker
+
+There is an image built on Alpine Linux on Docker hub.
+
+## Build
+
+docker buildx build --platform linux/amd64,linux/arm64 -t tinpotnick/rrdb:1.0.2 . --push

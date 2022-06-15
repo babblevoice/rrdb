@@ -18,5 +18,5 @@ COPY --from=builder [ "/usr/src/rrdb", "/usr/src/rrdb" ]
 
 EXPOSE 13900
 WORKDIR /var/rrdb
-CMD [ "/usr/bin/nc", "-l", "-p", "13900", "-e", "/usr/src/rrdb/rrdb --command=- --dir=/var/rrdb" ]
+CMD [ "/usr/bin/nc", "-lk", "-p", "13900", "-e", "/usr/src/rrdb/rrdb", "--command=-", "--dir=/var/rrdb" ]
 

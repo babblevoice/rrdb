@@ -13,6 +13,7 @@ RUN apk add --no-cache alpine-sdk; \
 
 FROM alpine:latest as app
 
+RUN apk add --no-cache stunnel
 
 COPY --from=builder [ "/usr/src/rrdb", "/usr/src/rrdb" ]
 

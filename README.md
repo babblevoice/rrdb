@@ -158,4 +158,4 @@ There is an image built on Alpine Linux on Docker hub.
 
 ## Build
 
-docker buildx build --platform linux/amd64,linux/arm64 -t tinpotnick/rrdb:1.0.2 . --push
+docker buildx build --platform linux/amd64,linux/arm64 -t tinpotnick/rrdb:1.1.2 . --push

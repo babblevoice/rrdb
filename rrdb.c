@@ -1739,6 +1739,7 @@ int waitForInput(char *dir)
 {
 
     char c;
+    int ic;
     char command[MAXCOMMANDLENGTH];
     RRDBCommand ourCommand;
     const char delims[] = " ";
@@ -1757,17 +1758,17 @@ int waitForInput(char *dir)
     char fulldirname[PATH_MAX + NAME_MAX];
 
     command[0] = 0;
-    while ( ( c = fgetc(stdin)) != '\n' )
-    {
-        if ( c == '\r' )
-        {
-            continue;
-        }
+    while( 1 ) {
+        ic = fgetc( stdin );
+        if( EOF == ic ) exit( 0 );
+        c = ic;
+        if ( c == '\n' ) break;
+        if ( c == '\r' ) continue;
+
         command[i] = c;
         command[i+1] = 0;
 
-        if (i > MAXCOMMANDLENGTH - 5)
-        {
+        if( i > ( MAXCOMMANDLENGTH - 5 ) ) {
             printf("ERROR: command too long\n");
             exit(1);
         }

@@ -13,11 +13,12 @@ RUN apk add --no-cache alpine-sdk; \
 
 FROM alpine:latest as app
 
-RUN apk add --no-cache stunnel
+#stunnel - removed
+RUN apk add --no-cache ucspi-tcp6 
 
 COPY --from=builder /usr/bin/rrdb /usr/bin/rrdb
 
 EXPOSE 13900
 WORKDIR /var/rrdb
-CMD [ "/usr/bin/nc", "-lk", "-p", "13900", "-e", "/usr/bin/rrdb", "--command=-", "--dir=/var/rrdb" ]
+CMD [ "/usr/bin/tcpserver", "0", "13900", "/usr/bin/rrdb", "--command=-", "--dir=/var/rrdb" ]
 

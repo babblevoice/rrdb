@@ -309,20 +309,17 @@ int printRRDBFileXform(rrdbFile *fileData, unsigned int index)
     unsigned int i;
     unsigned int windowPos = 0;
 
-    if ( index >= fileData->xformheader.xformCount )
-    {
+    if ( index >= fileData->xformheader.xformCount ) {
         printf("ERROR: xform index out of bounds\n");
         return -1;
     }
 
-    for ( i = 0 ; i < fileData->header.sampleCount; i++ )
-    {
+    for ( i = 0 ; i < fileData->header.sampleCount; i++ ) {
 
         /* + 1 so that we loop back round to the start and print them in time order */
         windowPos = (i + fileData->xforms[index].windowPosition + 1)%fileData->header.sampleCount;
 
-        if ( 1 == fileData->xformtimes[index][windowPos].valid )
-        {
+        if ( 1 == fileData->xformtimes[index][windowPos].valid ) {
             printf("%ld:%Lf\n", fileData->xformtimes[index][windowPos].time, fileData->xformdata[index][windowPos]);
         }
     }
@@ -476,11 +473,11 @@ int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount
     printf("ERROR: error obtaining lock on file\n");
   }
 
-  if ( -1 == writeRRDBFile(pfd, &fileData) )
-  {
-      printf("ERROR: error writing newly created '%s' on init\n", filename);
+  if ( -1 == writeRRDBFile(pfd, &fileData) ) {
       lseek(pfd, 0, SEEK_SET);
-      lockf(pfd, F_ULOCK, 1);
+      if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+        fprintf( stderr, "Failed to unlock file\n" );
+      }
       close(pfd);
       return -1;
   }
@@ -584,10 +581,6 @@ int readRRDBFile(int pfd, rrdbFile *fileData)
   if ( sizeof(rrdbHeader) != amount_read )
   {
       printf("ERROR: failed to read a RRDB header - there must be one??\n");
-      /* failure */
-      lseek(pfd, 0, SEEK_SET);
-      lockf(pfd, F_ULOCK, 1);
-      close(pfd);
       return -1;
   }
 
@@ -595,61 +588,39 @@ int readRRDBFile(int pfd, rrdbFile *fileData)
   totalSizeRequired = ( fileData->header.sampleCount * sizeof (rrdbTimePoint));
 
   fileData->times = malloc(totalSizeRequired);
-  if ( totalSizeRequired != read(pfd, fileData->times, totalSizeRequired) )
-  {
+  if ( totalSizeRequired != read(pfd, fileData->times, totalSizeRequired) ) {
       printf("ERROR: failed to read time data from RRDB file\n");
-      lseek(pfd, 0, SEEK_SET);
-      lockf(pfd, F_ULOCK, 1);
-      close(pfd);
       return -1;
   }
 
 
   /* data sets */
   setCountSize = ( fileData->header.sampleCount * sizeof (rrdbNumber));
-  for ( i = 0 ; i < fileData->header.setCount; i++ )
-  {
+  for ( i = 0 ; i < fileData->header.setCount; i++ ) {
       fileData->sets[i] = malloc(setCountSize);
-      if ( setCountSize != read(pfd, fileData->sets[i], setCountSize) )
-      {
+      if ( setCountSize != read(pfd, fileData->sets[i], setCountSize) ) {
           printf("ERROR: failed to read set data from RRDB file\n");
-          lseek(pfd, 0, SEEK_SET);
-          lockf(pfd, F_ULOCK, 1);
-          close(pfd);
           return -1;
       }
   }
 
   /* now look for xform data
   fileData->xformheader.xformCount = 0;*/
-  if ( sizeof(rrdbXformsHeader) != read(pfd, &fileData->xformheader, sizeof(rrdbXformsHeader)) )
-  {
+  if ( sizeof(rrdbXformsHeader) != read(pfd, &fileData->xformheader, sizeof(rrdbXformsHeader)) ) {
       printf("ERROR: failed to read xform header from RRDB file\n");
-      lseek(pfd, 0, SEEK_SET);
-      lockf(pfd, F_ULOCK, 1);
-      close(pfd);
       return -1;
   }
 
   /* we have some xformations */
-  for ( i = 0 ; i < fileData->xformheader.xformCount; i++ )
-  {
-      if ( sizeof(rrdbXformHeader) != read(pfd, &fileData->xforms[i], sizeof(rrdbXformHeader)))
-      {
+  for ( i = 0 ; i < fileData->xformheader.xformCount; i++ ) {
+      if ( sizeof(rrdbXformHeader) != read(pfd, &fileData->xforms[i], sizeof(rrdbXformHeader))) {
           printf("ERROR: failed to read xform header data from RRDB file\n");
-          lseek(pfd, 0, SEEK_SET);
-          lockf(pfd, F_ULOCK, 1);
-          close(pfd);
           return -1;
       }
 
       fileData->xformtimes[i] = malloc(totalSizeRequired);
-      if ( totalSizeRequired != read(pfd, fileData->xformtimes[i], totalSizeRequired) )
-      {
+      if ( totalSizeRequired != read(pfd, fileData->xformtimes[i], totalSizeRequired) ) {
           printf("ERROR: failed to read xform time data from RRDB file\n");
-          lseek(pfd, 0, SEEK_SET);
-          lockf(pfd, F_ULOCK, 1);
-          close(pfd);
           return -1;
       }
 
@@ -658,9 +629,6 @@ int readRRDBFile(int pfd, rrdbFile *fileData)
       if ( setCountSize != read(pfd, fileData->xformdata[i], setCountSize) )
       {
           printf("ERROR: failed to read xform data from RRDB file\n");
-          lseek(pfd, 0, SEEK_SET);
-          lockf(pfd, F_ULOCK, 1);
-          close(pfd);
           return -1;
       }
   }
@@ -682,15 +650,17 @@ int printRRDBFileInfo(char *filename)
     unsigned int i;
     int pfd;
 
-    if ((pfd = open(filename, O_RDWR )) == -1)
-    {
-      /* failure - should only ouput one error - perhaps need to put this somewhere else?
-            printf("ERROR: failed to open %s for O_RDWR\n", filename);*/
+    if ((pfd = open(filename, O_RDWR )) == -1) {
+      printf("ERROR: failed to open %s for O_RDWR\n", filename);
       return -1;
     }
 
     /* Lock */
-    lockf(pfd, F_LOCK, 1);
+    if( 0 != lockf(pfd, F_LOCK, 1) ) {
+      close(pfd);
+      printf("ERROR: failed to acquire lock for %s\n", filename);
+      return -1;
+    }
 
     if ( RRDBTOUCHV2 == getFileVersion( pfd ) )
     {
@@ -700,15 +670,24 @@ int printRRDBFileInfo(char *filename)
       char *addr, *ptr;
       unsigned int loopcount;
 
-      if ( fstat( pfd, &sb ) == -1 )           /* To obtain file size */
-      {
+      if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
+        printf("ERROR: cannot stat RRDB file\n");
+        lseek(pfd, 0, SEEK_SET);
+        if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+          fprintf( stderr, "Failed to unlock file\n" );
+        }
+        close(pfd);
         return -1;
       }
 
       addr = mmap(NULL, sb.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, pfd, 0);
-      if (addr == MAP_FAILED)
-      {
+      if (addr == MAP_FAILED) {
         printf("ERROR: error accessing data file.\n");
+        lseek(pfd, 0, SEEK_SET);
+        if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+          fprintf( stderr, "Failed to unlock file\n" );
+        }
+        close(pfd);
         return -1;
       }
 
@@ -717,8 +696,7 @@ int printRRDBFileInfo(char *filename)
 
       printf( "2:%i:%i\n", ourtouchheader->sets, ourtouchheader->samplesPerSet );
 
-      for ( loopcount = 0; loopcount < ourtouchheader->sets; loopcount++ )
-      {
+      for ( loopcount = 0; loopcount < ourtouchheader->sets; loopcount++ ) {
         printf("%s:%i\n", setHeader->path, getTimePerSample( setHeader->period ) );
         ptr = (char *)setHeader;
         ptr += sizeof( rrdbTouchSet ) + ( ourtouchheader->samplesPerSet * sizeof( rrdbInt ) );
@@ -728,12 +706,22 @@ int printRRDBFileInfo(char *filename)
       munmap( ( char * ) addr, sb.st_size );
 
       lseek(pfd, 0, SEEK_SET);
-      lockf(pfd, F_ULOCK, 1);
+      if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+        fprintf( stderr, "Failed to unlock file\n" );
+      }
+
       close(pfd);
       return 1;
     }
 
-    readRRDBFile(pfd, &fileData);
+    if( -1 == readRRDBFile(pfd, &fileData) ) {
+      lseek(pfd, 0, SEEK_SET);
+      if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+        fprintf( stderr, "Failed to unlock file\n" );
+      }
+      close(pfd);
+      return -1;
+    }
 
     printf("Version is %i\n", fileData.header.fileVersion);
     printf("Number of sets %i\n", fileData.header.setCount);
@@ -798,7 +786,9 @@ int printRRDBFileInfo(char *filename)
 
     freeRRDBFile(&fileData);
     lseek(pfd, 0, SEEK_SET);
-    lockf(pfd, F_ULOCK, 1);
+    if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+      fprintf( stderr, "Failed to unlock file\n" );
+    }
     close(pfd);
 
     return 1;
@@ -814,23 +804,31 @@ int modifyRRDBFile(char *filename, char* vals, char* xform)
     int ixform;
     int pfd;
 
-    if ((pfd = open(filename, O_RDWR )) == -1)
-    {
-      /* failure - should only ouput one error - perhaps need to put this somewhere else?
-            printf("ERROR: failed to open %s for O_RDWR\n", filename);*/
+    if ((pfd = open(filename, O_RDWR )) == -1) {
+      printf("ERROR: failed to open %s for O_RDWR\n", filename);
       return -1;
     }
 
     /* Lock */
-    lockf(pfd, F_LOCK, 1);
-
-    if ( RRDBTOUCHV2 == getFileVersion( pfd ) )
-    {
-        printf("Unsupported version V2\n");
-        goto finishmodify;
+    if( 0 != lockf(pfd, F_LOCK, 1) ) {
+      close(pfd);
+      printf("ERROR: Failed to acquire lock for %s\n", filename);
+      return -1;
     }
 
-    readRRDBFile(pfd, &fileData);
+    if ( RRDBTOUCHV2 == getFileVersion( pfd ) ) {
+      printf("Unsupported version V2\n");
+      goto finishmodify;
+    }
+
+    if( -1 == readRRDBFile(pfd, &fileData) ) {
+      lseek(pfd, 0, SEEK_SET);
+      if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+        fprintf( stderr, "Failed to unlock file\n" );
+      }
+      close(pfd);
+      return -1;
+    }
 
     printf("Version is %i\n", fileData.header.fileVersion);
     printf("Number of sets %i\n", fileData.header.setCount);
@@ -885,15 +883,11 @@ int modifyRRDBFile(char *filename, char* vals, char* xform)
     }
 
     printf("Modifying raw data, time %ld.%i, with new value %Lf\n", indextime, usec, newvalue );
-    for ( int i = 0 ; i < fileData.header.sampleCount; i++ )
-    {
-      if ( 1 == fileData.times[i].valid )
-      {
+    for ( int i = 0 ; i < fileData.header.sampleCount; i++ ) {
+      if ( 1 == fileData.times[i].valid ) {
         if( indextime == fileData.times[i].time &&
-            usec == fileData.times[i].uSecs )
-        {
-          for ( int j = 0 ; j < fileData.header.setCount; j++ )
-          {
+            usec == fileData.times[i].uSecs ) {
+          for ( int j = 0 ; j < fileData.header.setCount; j++ ) {
             printf("Modifying raw data time %ld.%i ;old value %Lf; new value %Lf\n", fileData.times[i].time, fileData.times[i].uSecs, fileData.sets[j][i], newvalue );
             fileData.sets[j][i] = newvalue;
           }
@@ -907,14 +901,15 @@ int modifyRRDBFile(char *filename, char* vals, char* xform)
 finishmodify:
 
     if ( -1 == writeRRDBFile(pfd, &fileData) )
-    {
-        printf("ERROR: could no write data to RRDB file\n");
-    }
+      fprintf( stderr, "Could not write data to RRDB file\n");
+
 finishnomodify:
 
     freeRRDBFile(&fileData);
     lseek(pfd, 0, SEEK_SET);
-    lockf(pfd, F_ULOCK, 1);
+    if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+      fprintf( stderr, "Failed to unlock file\n" );
+    }
     close(pfd);
 
     return 1;
@@ -948,21 +943,30 @@ int updateRRDBFile(char *filename, char* vals)
 
     xformstart = (struct timeval){0};
 
-    if ((pfd = open(filename, O_RDWR )) == -1)
-    {
-      /* failure - should only ouput one error - perhaps need to put this somewhere else?
-            printf("ERROR: failed to open %s for O_RDWR\n", filename);*/
+    if ((pfd = open(filename, O_RDWR )) == -1) {
+      printf("ERROR: failed to open %s for O_RDWR\n", filename);
       return -1;
     }
 
     /* Lock */
-    lockf(pfd, F_LOCK, 1);
+    if( 0 != lockf(pfd, F_LOCK, 1) ) {
+      close(pfd);
+      printf("ERROR: failed to acqure lock for %s\n", filename);
+      return -1;
+    }
 
     /*
      read in the header to get the window position and make
      sure the set count is correct
      */
-    readRRDBFile(pfd, &fileData);
+    if( -1 == readRRDBFile(pfd, &fileData) ) {
+      lseek(pfd, 0, SEEK_SET);
+      if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+        fprintf( stderr, "Failed to unlock file\n" );
+      }
+      close(pfd);
+      return -1;
+    }
 
     /*
      Move round on 1
@@ -985,16 +989,12 @@ int updateRRDBFile(char *filename, char* vals)
      */
 
     result = strtok( vals, delims );
-    for ( i = 0 ; i < fileData.header.setCount; i++ )
-    {
+    for ( i = 0 ; i < fileData.header.setCount; i++ ) {
         if ( NULL != result )
-        {
-            fileData.sets[i][fileData.header.windowPosition] = atof(result);
-        }
+          fileData.sets[i][fileData.header.windowPosition] = atof(result);
         else
-        {
-            fileData.sets[i][fileData.header.windowPosition] = 0;
-        }
+          fileData.sets[i][fileData.header.windowPosition] = 0;
+
         result = strtok( NULL, delims );
     }
 
@@ -1003,8 +1003,7 @@ int updateRRDBFile(char *filename, char* vals)
      */
     current_time = t1.tv_sec;
 
-    for ( i = 0; i < fileData.xformheader.xformCount; i++)
-    {
+    for ( i = 0; i < fileData.xformheader.xformCount; i++) {
         current_tm = gmtime(&current_time);
 
         switch (fileData.xforms[i].period) {
@@ -1065,8 +1064,7 @@ int updateRRDBFile(char *filename, char* vals)
          */
         unsigned int writeWindowPosition = fileData.xforms[i].windowPosition;
         int movedon = FALSE;
-        if( fileData.xformtimes[i][fileData.xforms[i].windowPosition].time != xformstart.tv_sec )
-        {
+        if( fileData.xformtimes[i][fileData.xforms[i].windowPosition].time != xformstart.tv_sec ) {
             /* we need to move on the window... */
             writeWindowPosition = (fileData.xforms[i].windowPosition + 1 ) % fileData.header.sampleCount;
             movedon = TRUE;
@@ -1075,52 +1073,37 @@ int updateRRDBFile(char *filename, char* vals)
         switch (fileData.xforms[i].calc) {
             case RRDBMAX:
                 if( TRUE == movedon )
-                {
                   xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-                }
                 else
-                {
                   xformResult = MAX( fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition],
                                      fileData.xformdata[i][writeWindowPosition] );
-                }
                 break;
 
             case RRDBMIN:
                 if( TRUE == movedon )
-                {
                   xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-                }
                 else
-                {
                   xformResult = MIN( fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition],
                                      fileData.xformdata[i][writeWindowPosition] );
-                }
                 break;
 
             case RRDBCOUNT:
                 if( TRUE == movedon )
-                {
                   xformResult = 1;
-                }
                 else
-                {
                   xformResult = fileData.xformdata[i][writeWindowPosition] + 1;
-                }
 
                 break;
 
             case RRDBMEAN:
             {
                 unsigned int countWindowPosition = (writeWindowPosition + 1) % fileData.header.sampleCount;
-                if( TRUE == movedon )
-                {
+                if( TRUE == movedon ) {
                   /* We use the next slot to store our running count so we can add to the average - and hide it */
                   fileData.xformtimes[i][countWindowPosition].valid = FALSE;
                   fileData.xformdata[i][countWindowPosition] = 1;
                   xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-                }
-                else
-                {
+                } else {
                   rrdbNumber countinmean = fileData.xformdata[i][countWindowPosition];
                   if( countinmean <= 0 ) countinmean = 1; /* allow for corruption */
                   rrdbNumber reversemean = fileData.xformdata[i][writeWindowPosition] * countinmean;
@@ -1134,14 +1117,10 @@ int updateRRDBFile(char *filename, char* vals)
             }
             case RRDBSUM:
                 if( TRUE == movedon )
-                {
                   xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-                }
                 else
-                {
                   xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition] +
                                      fileData.xformdata[i][writeWindowPosition];
-                }
                 break;
 
             default:
@@ -1158,23 +1137,17 @@ int updateRRDBFile(char *filename, char* vals)
     /*
      Now write it
      */
-    if ( -1 == writeRRDBFile(pfd, &fileData) )
-    {
-        printf("ERROR: could no write data to RRDB file\n");
-        freeRRDBFile(&fileData);
-        lseek(pfd, 0, SEEK_SET);
-        lockf(pfd, F_ULOCK, 1);
-        close(pfd);
-        return -1;
-
-    }
+    int retval = 1;
+    if ( -1 == writeRRDBFile(pfd, &fileData) ) retval = -1;
 
 
     freeRRDBFile(&fileData);
     lseek(pfd, 0, SEEK_SET);
-    lockf(pfd, F_ULOCK, 1);
+    if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+      fprintf( stderr, "Failed to unlock file\n" );
+    }
     close(pfd);
-    return 1;
+    return retval;
 }
 
 /************************************************************************************
@@ -1191,7 +1164,10 @@ int getFileVersion(int pfd)
   off_t curpos = lseek( pfd, 0, SEEK_CUR );
 
   lseek( pfd, 0, SEEK_SET );
-  read( pfd, &version, sizeof(version) );
+  if( -1 == read( pfd, &version, sizeof(version) ) ) {
+    fprintf( stderr, "Failed to read file in getFileVersion\n");
+    return -1;
+  }
   lseek( pfd, curpos, SEEK_SET );
   return version;
 }
@@ -1308,13 +1284,12 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
   char *addr, *ptr;
   int retval = -1;
 
-  if ( fstat( pfd, &sb ) == -1 )           /* To obtain file size */
-  {
+  if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
+    printf("ERROR: failed to stat file\n");
     return -1;
   }
 
-  if ( 0 == strlen( path ) )
-  {
+  if ( 0 == strlen( path ) ) {
     printf("ERROR: path should be a string\n");
     return -1;
   }
@@ -1379,22 +1354,21 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
     /* Add a new one(s) */
     header->sets++;
 
-    if ( fstat( pfd, &sb ) == -1 )           /* To obtain file size */
-    {
+    if ( fstat( pfd, &sb ) == -1 ) {/* To obtain file size */
+      printf( "ERROR: failed to stat file \n" );
       return -1;
     }
 
     munmap( ( char * ) addr, sb.st_size );
     posix_fallocate( pfd, sb.st_size, sizeof( rrdbTouchSet ) + ( sizeof( rrdbInt ) * samplesPerSet ) );
 
-    if ( fstat( pfd, &sb ) == -1 )           /* To obtain file size */
-    {
+    if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
+      printf( "ERROR: failed to stat file\n" );
       return -1;
     }
 
     addr = mmap(NULL, sb.st_size, PROT_WRITE | PROT_READ, MAP_SHARED, pfd, 0);
-    if (addr == MAP_FAILED)
-    {
+    if (addr == MAP_FAILED) {
       printf("ERROR: error accessing data file.\n");
       return -1;
     }
@@ -1446,43 +1420,53 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
   rrdbTouchSet *touchSet, *src;
   struct stat sb;
 
-  if ( 0 == maxsets )
-  {
+  if ( 0 == maxsets ) {
     maxsets = TOUCHMAXDEFAULTSETS;
   }
 
-  if ( 0 == sampleCount )
-  {
+  if ( 0 == sampleCount ) {
     sampleCount = TOUCHDEFAULTSAMPLECOUNT;
   }
 
-  if ((pfd = open(filename, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH )) == -1)
-  {
+  if ((pfd = open(filename, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH )) == -1) {
     /* failure - should only ouput one error - perhaps need to put this somewhere else?*/
     int errsv = errno;
     printf("ERROR: failed to open %s for O_RDWR (%s)\n", filename, strerror(errsv));
     return -1;
   }
 
-  lockf(pfd, F_LOCK, 1);
-
-  if ( fstat( pfd, &sb ) == -1 )           /* To obtain file size */
-  {
+  if( 0 != lockf(pfd, F_LOCK, 1) ) {
+    close(pfd);
+    printf("ERROR: failed to acquire lock for file %s\n", filename);
     return -1;
   }
 
-  if ( 0 == sb.st_size )
-  {
+  if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
+    lseek(pfd, 0, SEEK_SET);
+    if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+      fprintf( stderr, "Failed to unlock file\n" );
+    }
+    close(pfd);
+    printf("ERROR: Couldn't stat RRDB file(1)\n");
+    return -1;
+  }
+
+  if ( 0 == sb.st_size ) {
     posix_fallocate( pfd, 0, sizeof(rrdbTouchHeader) );
 
-    if ( fstat( pfd, &sb ) == -1 )           /* To obtain file size */
-    {
+    if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
+      lseek(pfd, 0, SEEK_SET);
+      if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+        fprintf( stderr, "Failed to unlock file\n" );
+      }
+      close(pfd);
+      printf("ERROR: Couldn't stat RRDB file(2)\n");
       return -1;
     }
 
     headerData = ( rrdbTouchHeader * ) mmap(NULL, sizeof(rrdbTouchHeader), PROT_WRITE | PROT_READ, MAP_SHARED, pfd, 0);
-    if (headerData == MAP_FAILED)
-    {
+    if (headerData == MAP_FAILED) {
+      printf("ERROR: Failed to read RRDB file header\n");
       return -1;
     }
 
@@ -1494,55 +1478,42 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
     munmap( ( char * ) headerData, sizeof(rrdbTouchHeader) );
   }
 
-  if ( RRDBTOUCHV2 != getFileVersion( pfd ) )
-  {
+  if ( RRDBTOUCHV2 != getFileVersion( pfd ) ) {
     printf("ERROR: Bad format for RRDB touch file\n");
     /* Unlock and close. */
     lseek(pfd, 0, SEEK_SET);
-    lockf(pfd, F_ULOCK, 1);
+    if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+      fprintf( stderr, "failed to release lock for file\n" );
+    }
 
     close(pfd);
     return -1;
   }
 
-  if ( 0 == strlen( period ) )
-  {
+  if ( 0 == strlen( period ) ) {
     period = "d";
   }
 
   pathitem_save_ptr = NULL;
   // We only use path once, so it doesn't matter that strtok_r overwrites it
   pathitem = strtok_r( path, "/", &pathitem_save_ptr );
-  while( NULL != pathitem )
-  {
+  while( NULL != pathitem ) {
     perioditem_save_ptr = NULL;
     strcpy( periodcopy, period );
     perioditem = strtok_r( periodcopy, ",", &perioditem_save_ptr );
 
-    while( NULL != perioditem )
-    {
-      if ( 0 == strcmp( perioditem, "FIVEMINUTE" ) )
-      {
+    while( NULL != perioditem ) {
+      if ( 0 == strcmp( perioditem, "FIVEMINUTE" ) ) {
         iperiod = FIVEMINUTE;
-      }
-      else if ( 0 == strcmp( perioditem, "ONEHOUR" ) )
-      {
+      } else if ( 0 == strcmp( perioditem, "ONEHOUR" ) ) {
         iperiod = ONEHOUR;
-      }
-      else if ( 0 == strcmp( perioditem, "SIXHOUR" ) )
-      {
+      } else if ( 0 == strcmp( perioditem, "SIXHOUR" ) ) {
         iperiod = SIXHOUR;
-      }
-      else if ( 0 == strcmp( perioditem, "TWELVEHOUR" ) )
-      {
+      } else if ( 0 == strcmp( perioditem, "TWELVEHOUR" ) ) {
         iperiod = TWELVEHOUR;
-      }
-      else if ( 0 == strcmp( perioditem, "ONEDAY" ) )
-      {
+      } else if ( 0 == strcmp( perioditem, "ONEDAY" ) ) {
         iperiod = ONEDAY;
-      }
-      else
-      {
+      } else {
         iperiod = ONEHOUR;
       }
 
@@ -1553,8 +1524,14 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
   }
 
   /* Remove any sets which haven't been touched for longer than the set size */
-  if ( fstat( pfd, &sb ) == -1 )           /* To obtain file size */
-  {
+  if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
+    lseek(pfd, 0, SEEK_SET);
+    if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+      fprintf( stderr, "failed to release lock for file\n" );
+    }
+
+    close(pfd);
+    printf("ERROR: Failed to stat RRDB file (3)\n");
     return -1;
   }
 
@@ -1564,20 +1541,15 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
   now = time( NULL );
   setsize = sizeof( rrdbTouchSet ) + ( headerData->samplesPerSet * sizeof( rrdbInt ) );
 
-  for( i = 0; i < headerData->sets; i++ )
-  {
+  for( i = 0; i < headerData->sets; i++ ) {
     touchSet = ( rrdbTouchSet * ) ( ptr + ( setsize * i ) );
-    if ( touchSet->lastTouch < ( now - ( getTimePerSample( touchSet->period ) * headerData->samplesPerSet ) ) )
-    {
+    if ( touchSet->lastTouch < ( now - ( getTimePerSample( touchSet->period ) * headerData->samplesPerSet ) ) ) {
       /* We need to remove */
       truncateby++;
       headerData->sets--;
 
       /* Copy the last one to this one (if not the last one) */
-      if ( i == headerData->sets )
-      {
-        break;
-      }
+      if ( i == headerData->sets ) break;
 
       src = ( rrdbTouchSet * )
             ( addr + sizeof( rrdbTouchHeader ) +
@@ -1590,16 +1562,17 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
     }
   }
 
-  if ( truncateby > 0 )
-  {
-    ftruncate( pfd, sb.st_size - ( setsize * truncateby ) );
+  if ( truncateby > 0 && -1 == ftruncate( pfd, sb.st_size - ( setsize * truncateby ) ) ) {
+    fprintf( stderr, "Failed to truncate file\n" );
   }
 
   munmap( addr, sb.st_size );
 
   /* Unlock and close. */
   lseek(pfd, 0, SEEK_SET);
-  lockf(pfd, F_ULOCK, 1);
+  if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+    fprintf( stderr, "Failed to unlock file\n" );
+  }
 
   close(pfd);
 
@@ -1618,55 +1591,53 @@ int runCommand(char *filename, RRDBCommand ourCommand, unsigned int sampleCount,
 {
     rrdbFile ourFile;
     int pfd;
+    int retval = 1;
 
     switch(ourCommand)
     {
         case CREATE:
-            if ( 0 >= sampleCount )
-            {
+            if ( 0 >= sampleCount ) {
                 printf("ERROR: sample count too small, must be more than zero.\n");
                 return -1;
             }
 
-            if ( -1 == ( pfd = initRRDBFile(filename, setCount, sampleCount, xformations)) )
-            {
+            if ( -1 == ( pfd = initRRDBFile(filename, setCount, sampleCount, xformations)) ) {
                 printf("ERROR: writing db file error");
+                return -1;
             }
             lseek(pfd, 0, SEEK_SET);
-            lockf(pfd, F_ULOCK, 1);
+            if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+              fprintf( stderr, "Failed to unlock file\n" );
+            }
             close(pfd);
             break;
 
         case FETCH:
-            if ((pfd = open(filename, O_RDWR )) == -1)
-            {
-              /* failure - should only ouput one error - perhaps need to put this somewhere else?
-                    printf("ERROR: failed to open %s for O_RDWR\n", filename);*/
+            if( ( pfd = open(filename, O_RDWR ) ) == -1) {
               printf("ERROR: failed to read rrdb file '%s'\n", filename);
               return -1;
             }
 
             /* Lock */
-            lockf(pfd, F_LOCK, 1);
+            if( 0 != lockf(pfd, F_LOCK, 1) ) {
+              printf("ERROR: failed to acquire lock read for rrdb file '%s'\n", filename);
+              return -1;
+            }
 
-            switch( getFileVersion( pfd ) )
-            {
+            switch( getFileVersion( pfd ) ) {
               case RRDBV1:
-                readRRDBFile(pfd, &ourFile);
+                if( -1 == readRRDBFile(pfd, &ourFile) ) goto getoutfetch;
 
-                if ( 0 != strlen(xformations) )
-                {
-                    if ( -1 == printRRDBFileXform(&ourFile, atoi(xformations)))
-                    {
-                        printf("ERROR: failed to retreive rrdb data\n");
-                    }
-                }
-                else
-                {
-                    if ( -1 == printRRDBFile(&ourFile))
-                    {
-                        printf("ERROR: failed to retreive rrdb data\n");
-                    }
+                if ( 0 != strlen(xformations) ) {
+                  if ( -1 == printRRDBFileXform(&ourFile, atoi(xformations))) {
+                    retval = -1;
+                    goto getoutfetch;
+                  }
+                } else {
+                  if ( -1 == printRRDBFile(&ourFile)) {
+                    retval = -1;
+                    goto getoutfetch;
+                  }
                 }
 
                 freeRRDBFile(&ourFile);
@@ -1675,41 +1646,31 @@ int runCommand(char *filename, RRDBCommand ourCommand, unsigned int sampleCount,
                 printRRDBTouchFile( pfd, xformations, cperiod );
                 break;
               default:
-                printf("ERROR: Unknown fie format\n");
+                printf("ERROR: Unknown file format\n");
+                retval = -1;
+                goto getoutfetch;
                 break;
             }
-
+getoutfetch:
             lseek(pfd, 0, SEEK_SET);
-            lockf(pfd, F_ULOCK, 1);
+            if( 0 != lockf(pfd, F_ULOCK, 1) ) {
+              fprintf( stderr, "Failed to unlock file\n" );
+            }
             close(pfd);
 
             break;
 
         case UPDATE:
             /* we should be given a value for each set we have */
-            if ( -1 ==  updateRRDBFile(filename, &values[0]))
-            {
-                printf("ERROR: failed to update rrdb data\n");
-                return -1;
-            }
-
+            if ( -1 ==  updateRRDBFile(filename, &values[0])) return -1;
             break;
 
         case MODIFY:
-            if ( -1 ==  modifyRRDBFile(filename, values, xformations))
-            {
-                printf("ERROR: failed to update rrdb data\n");
-                return -1;
-            }
+            if ( -1 ==  modifyRRDBFile(filename, values, xformations)) return -1;
             break;
 
         case INFO:
-            if ( -1 == printRRDBFileInfo(filename) )
-            {
-              printf("ERROR: failed to read rrdb data\n");
-              return -1;
-            }
-
+            if ( -1 == printRRDBFileInfo(filename) ) return -1;
             break;
 
         case TOUCH:
@@ -1720,7 +1681,7 @@ int runCommand(char *filename, RRDBCommand ourCommand, unsigned int sampleCount,
             break;
     }
 
-    return 1;
+    return retval;
 }
 
 /************************************************************************************
@@ -1881,8 +1842,7 @@ int waitForInput(char *dir)
       strcpy( &period[0], result );
     }
 
-    if ( -1 != runCommand(fulldirname, ourCommand, sampleCount, setCount, values, xformations, period) )
-    {
+    if ( -1 != runCommand(fulldirname, ourCommand, sampleCount, setCount, values, xformations, period) ) {
         printf("OK\n");
     }
 

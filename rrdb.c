@@ -119,6 +119,62 @@
  at the moment, a lock we use as an advisor for the whole file.
  */
 
+
+/**
+ * @return { int } open file id or -1 on failure.
+*/
+int createopenandlock( char *filename ) {
+
+  int pfd = -1;
+  if ( ( pfd = open( filename, O_CREAT | O_RDWR , S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH ) ) == -1 ) {
+    fprintf( stderr, "failed to open file '%s' for writing\n", filename );
+    return -1;
+  }
+
+  if ( -1 == lockf( pfd, F_LOCK, 1 ) ) {
+    close( pfd );
+    fprintf( stderr, "error obtaining lock on file\n" );
+    return -1;
+  }
+
+  return pfd;
+}
+
+/**
+ * We have to be writable to gain a lock - so even when read only use this.
+ * @return { int } 1 on success or -1 on failure
+*/
+int readwriteopenandlock( char *  filename ) {
+  int pfd;
+  if( ( pfd = open( filename, O_RDWR ) ) == -1) {
+    fprintf( stderr, "failed to read rrdb file '%s'\n", filename );
+    return -1;
+  }
+
+  /* Lock */
+  if( 0 != lockf( pfd, F_LOCK, 1 ) ) {
+    close( pfd );
+    fprintf( stderr, "failed to acquire lock read for rrdb file '%s'\n", filename );
+    return -1;
+  }
+  return pfd;
+}
+
+/**
+ * If unlocking fails we still try to close the file.
+ * @return { int } 1 on success -1 on failure
+*/
+int unlockandclose( int pfd ) {
+  int retval = 1;
+  lseek( pfd, 0, SEEK_SET );
+  if( 0 != lockf( pfd, F_ULOCK, 1 ) ) {
+    fprintf( stderr, "Failed to unlock file\n" );
+    retval = -1;
+  }
+  close( pfd );
+  return retval;
+}
+
 /************************************************************************************
  * Function: freeRRDBFile
  *
@@ -327,15 +383,13 @@ int printRRDBFileXform(rrdbFile *fileData, unsigned int index)
     return 1;
 }
 
-/************************************************************************************
- * Function: initRRDBFile
- *
- * Purpose: Initialize a file with zeroed out data.
- *
+/**
+ * Initialize a file with zeroed out data. Locks the file. This function 
+ * must not output error as this is the job of the caller.
  * Written: 9th March 2013 By: Nick Knight
- ************************************************************************************/
-int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount , char *xformations)
-{
+ * @returns { int } - an open file or -1 on failure.
+ */
+int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount , char *xformations) {
   int pfd;
   rrdbFile fileData;
   long long totalSizeRequired;
@@ -362,10 +416,9 @@ int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount
 
   /* data sets */
   setCountSize = ( fileData.header.sampleCount * sizeof (rrdbNumber));
-  for ( i = 0 ; i < fileData.header.setCount; i++ )
-  {
-      fileData.sets[i] = malloc(setCountSize);
-      memset(fileData.sets[i], 0, setCountSize);
+  for ( i = 0 ; i < fileData.header.setCount; i++ ) {
+    fileData.sets[i] = malloc(setCountSize);
+    memset(fileData.sets[i], 0, setCountSize);
   }
 
   /* now xform data */
@@ -373,78 +426,54 @@ int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount
    for all other items it also takes another param which is the index into the set */
   i = 0;
   result = strtok( xformations, delims );
-  while ( result )
-  {
+  while ( result ) {
     setIndexRequired = FALSE;
 
-    if ( 0 == strcmp("RRDBMAX", result))
-    {
-        fileData.xforms[i].calc = RRDBMAX;
-        setIndexRequired = TRUE;
-    }
-    else if ( 0 == strcmp("RRDBMIN", result))
-    {
+    if ( 0 == strcmp("RRDBMAX", result)) {
+      fileData.xforms[i].calc = RRDBMAX;
+      setIndexRequired = TRUE;
+    } else if ( 0 == strcmp("RRDBMIN", result)) {
       fileData.xforms[i].calc = RRDBMIN;
       setIndexRequired = TRUE;
-    }
-    else if ( 0 == strcmp("RRDBCOUNT", result))
-    {
-        fileData.xforms[i].calc = RRDBCOUNT;
-    }
-    else if ( 0 == strcmp("RRDBMEAN", result))
-    {
-        fileData.xforms[i].calc = RRDBMEAN;
-        setIndexRequired = TRUE;
-    }
-    else if ( 0 == strcmp("RRDBSUM", result))
-    {
-        fileData.xforms[i].calc = RRDBSUM;
-        setIndexRequired = TRUE;
+    } else if ( 0 == strcmp("RRDBCOUNT", result)) {
+      fileData.xforms[i].calc = RRDBCOUNT;
+    } else if ( 0 == strcmp("RRDBMEAN", result)) {
+      fileData.xforms[i].calc = RRDBMEAN;
+      setIndexRequired = TRUE;
+    } else if ( 0 == strcmp("RRDBSUM", result)) {
+      fileData.xforms[i].calc = RRDBSUM;
+      setIndexRequired = TRUE;
     }
 
     /* then get the time span */
     result = strtok( NULL, delims );
-    if ( NULL == result )
-    {
-        /* perhaps a major error? */
-        printf("ERROR: We really need a time period for the xform (%i)\n", fileData.xforms[i].calc);
-        break;
+    if ( NULL == result ) {
+      fprintf( stderr, "Failed to get timespan\n" );
+      return -1;
     }
 
-    if ( 0 == strcmp("FIVEMINUTE", result))
-    {
-        fileData.xforms[i].period = FIVEMINUTE;
-    }
-    else if ( 0 == strcmp("ONEHOUR", result))
-    {
-        fileData.xforms[i].period = ONEHOUR;
-    }
-    else if ( 0 == strcmp("SIXHOUR", result))
-    {
-        fileData.xforms[i].period = SIXHOUR;
-    }
-    else if ( 0 == strcmp("TWELVEHOUR", result))
-    {
-        fileData.xforms[i].period = TWELVEHOUR;
-    }
-    else if ( 0 == strcmp("ONEDAY", result))
-    {
-        fileData.xforms[i].period = ONEDAY;
+    if ( 0 == strcmp("FIVEMINUTE", result)) {
+      fileData.xforms[i].period = FIVEMINUTE;
+    } else if ( 0 == strcmp("ONEHOUR", result)) {
+      fileData.xforms[i].period = ONEHOUR;
+    } else if ( 0 == strcmp("SIXHOUR", result)) {
+      fileData.xforms[i].period = SIXHOUR;
+    } else if ( 0 == strcmp("TWELVEHOUR", result)) {
+      fileData.xforms[i].period = TWELVEHOUR;
+    } else if ( 0 == strcmp("ONEDAY", result)) {
+      fileData.xforms[i].period = ONEDAY;
     }
 
     fileData.xforms[i].setIndex = 0;
     fileData.xforms[i].windowPosition = 0;
 
-    if ( TRUE == setIndexRequired )
-    {
-        result = strtok( NULL, delims );
-        if ( NULL == result )
-        {
-            /* perhaps a major error? */
-            printf("ERROR: We really need an index for the xform\n");
-            break;
-        }
-        fileData.xforms[i].setIndex = atoi(result);
+    if ( TRUE == setIndexRequired ) {
+      result = strtok( NULL, delims );
+      if ( NULL == result ) {
+        fprintf( stderr, "We really need an index for the xform\n" );
+        return -1;
+      }
+      fileData.xforms[i].setIndex = atoi(result);
     }
 
     fileData.xformdata[i] = malloc(setCountSize);
@@ -461,25 +490,12 @@ int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount
   }
 
 
-  if ((pfd = open(filename, O_CREAT | O_RDWR , S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH )) == -1)
-  {
-      /* failure - should only ouput one error
-      printf("ERROR: failed to open file '%s' for writing\n", filename);*/
-      return -1;
-  }
+  pfd = createopenandlock( filename );
+  if( -1 == pfd ) return -1;
 
-  if ( -1 == lockf(pfd, F_LOCK, 1))
-  {
-    printf("ERROR: error obtaining lock on file\n");
-  }
-
-  if ( -1 == writeRRDBFile(pfd, &fileData) ) {
-      lseek(pfd, 0, SEEK_SET);
-      if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-        fprintf( stderr, "Failed to unlock file\n" );
-      }
-      close(pfd);
-      return -1;
+  if ( -1 == writeRRDBFile( pfd, &fileData ) ) {
+    unlockandclose( pfd );
+    pfd = -1;
   }
   freeRRDBFile(&fileData);
 
@@ -499,7 +515,6 @@ int writeRRDBFile(int pfd, rrdbFile *fileData)
   long long totalSizeRequired;
   long long setCountSize;
   unsigned int i;
-
 
   lseek(pfd, 0, SEEK_SET);
 
@@ -578,10 +593,9 @@ int readRRDBFile(int pfd, rrdbFile *fileData)
 
   amount_read = read(pfd, &fileData->header, sizeof(rrdbHeader));
 
-  if ( sizeof(rrdbHeader) != amount_read )
-  {
-      printf("ERROR: failed to read a RRDB header - there must be one??\n");
-      return -1;
+  if ( sizeof(rrdbHeader) != amount_read ) {
+    printf("ERROR: failed to read a RRDB header - there must be one??\n");
+    return -1;
   }
 
   /* read time data */
@@ -589,50 +603,48 @@ int readRRDBFile(int pfd, rrdbFile *fileData)
 
   fileData->times = malloc(totalSizeRequired);
   if ( totalSizeRequired != read(pfd, fileData->times, totalSizeRequired) ) {
-      printf("ERROR: failed to read time data from RRDB file\n");
-      return -1;
+    printf("ERROR: failed to read time data from RRDB file\n");
+    return -1;
   }
 
 
   /* data sets */
   setCountSize = ( fileData->header.sampleCount * sizeof (rrdbNumber));
   for ( i = 0 ; i < fileData->header.setCount; i++ ) {
-      fileData->sets[i] = malloc(setCountSize);
-      if ( setCountSize != read(pfd, fileData->sets[i], setCountSize) ) {
-          printf("ERROR: failed to read set data from RRDB file\n");
-          return -1;
-      }
+    fileData->sets[i] = malloc(setCountSize);
+    if ( setCountSize != read(pfd, fileData->sets[i], setCountSize) ) {
+      printf("ERROR: failed to read set data from RRDB file\n");
+      return -1;
+    }
   }
 
   /* now look for xform data
   fileData->xformheader.xformCount = 0;*/
   if ( sizeof(rrdbXformsHeader) != read(pfd, &fileData->xformheader, sizeof(rrdbXformsHeader)) ) {
-      printf("ERROR: failed to read xform header from RRDB file\n");
-      return -1;
+    printf("ERROR: failed to read xform header from RRDB file\n");
+    return -1;
   }
 
   /* we have some xformations */
   for ( i = 0 ; i < fileData->xformheader.xformCount; i++ ) {
-      if ( sizeof(rrdbXformHeader) != read(pfd, &fileData->xforms[i], sizeof(rrdbXformHeader))) {
-          printf("ERROR: failed to read xform header data from RRDB file\n");
-          return -1;
-      }
+    if ( sizeof(rrdbXformHeader) != read(pfd, &fileData->xforms[i], sizeof(rrdbXformHeader))) {
+      printf("ERROR: failed to read xform header data from RRDB file\n");
+      return -1;
+    }
 
-      fileData->xformtimes[i] = malloc(totalSizeRequired);
-      if ( totalSizeRequired != read(pfd, fileData->xformtimes[i], totalSizeRequired) ) {
-          printf("ERROR: failed to read xform time data from RRDB file\n");
-          return -1;
-      }
+    fileData->xformtimes[i] = malloc(totalSizeRequired);
+    if ( totalSizeRequired != read(pfd, fileData->xformtimes[i], totalSizeRequired) ) {
+      printf("ERROR: failed to read xform time data from RRDB file\n");
+      return -1;
+    }
 
 
-      fileData->xformdata[i] = malloc(setCountSize);
-      if ( setCountSize != read(pfd, fileData->xformdata[i], setCountSize) )
-      {
-          printf("ERROR: failed to read xform data from RRDB file\n");
-          return -1;
-      }
+    fileData->xformdata[i] = malloc(setCountSize);
+    if ( setCountSize != read(pfd, fileData->xformdata[i], setCountSize) ) {
+      printf("ERROR: failed to read xform data from RRDB file\n");
+      return -1;
+    }
   }
-
 
   return pfd;
 }
@@ -646,273 +658,224 @@ int readRRDBFile(int pfd, rrdbFile *fileData)
  ************************************************************************************/
 int printRRDBFileInfo(char *filename)
 {
-    rrdbFile fileData;
-    unsigned int i;
-    int pfd;
+  rrdbFile fileData;
+  unsigned int i;
+  int pfd;
 
-    if ((pfd = open(filename, O_RDWR )) == -1) {
-      printf("ERROR: failed to open %s for O_RDWR\n", filename);
+  if( ( pfd = readwriteopenandlock( filename ) ) == -1 ) {
+    printf("ERROR: failed to open %s\n", filename);
+    return -1;
+  }
+
+  if ( RRDBTOUCHV2 == getFileVersion( pfd ) ) {
+    rrdbTouchHeader *ourtouchheader;
+    rrdbTouchSet *setHeader;
+    struct stat sb;
+    char *addr, *ptr;
+    unsigned int loopcount;
+
+    if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
+      printf("ERROR: cannot stat RRDB file\n");
+      unlockandclose( pfd );
       return -1;
     }
 
-    /* Lock */
-    if( 0 != lockf(pfd, F_LOCK, 1) ) {
-      close(pfd);
-      printf("ERROR: failed to acquire lock for %s\n", filename);
+    addr = mmap(NULL, sb.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, pfd, 0);
+    if (addr == MAP_FAILED) {
+      printf("ERROR: error accessing data file.\n");
+      unlockandclose( pfd );
       return -1;
     }
 
-    if ( RRDBTOUCHV2 == getFileVersion( pfd ) )
-    {
-      rrdbTouchHeader *ourtouchheader;
-      rrdbTouchSet *setHeader;
-      struct stat sb;
-      char *addr, *ptr;
-      unsigned int loopcount;
+    ourtouchheader = ( rrdbTouchHeader * ) addr;
+    setHeader = ( rrdbTouchSet * )( addr + sizeof(rrdbTouchHeader) );
 
-      if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
-        printf("ERROR: cannot stat RRDB file\n");
-        lseek(pfd, 0, SEEK_SET);
-        if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-          fprintf( stderr, "Failed to unlock file\n" );
-        }
-        close(pfd);
-        return -1;
-      }
+    printf( "2:%i:%i\n", ourtouchheader->sets, ourtouchheader->samplesPerSet );
 
-      addr = mmap(NULL, sb.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, pfd, 0);
-      if (addr == MAP_FAILED) {
-        printf("ERROR: error accessing data file.\n");
-        lseek(pfd, 0, SEEK_SET);
-        if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-          fprintf( stderr, "Failed to unlock file\n" );
-        }
-        close(pfd);
-        return -1;
-      }
-
-      ourtouchheader = ( rrdbTouchHeader * ) addr;
-      setHeader = ( rrdbTouchSet * )( addr + sizeof(rrdbTouchHeader) );
-
-      printf( "2:%i:%i\n", ourtouchheader->sets, ourtouchheader->samplesPerSet );
-
-      for ( loopcount = 0; loopcount < ourtouchheader->sets; loopcount++ ) {
-        printf("%s:%i\n", setHeader->path, getTimePerSample( setHeader->period ) );
-        ptr = (char *)setHeader;
-        ptr += sizeof( rrdbTouchSet ) + ( ourtouchheader->samplesPerSet * sizeof( rrdbInt ) );
-        setHeader = ( rrdbTouchSet * ) ptr;
-      }
-
-      munmap( ( char * ) addr, sb.st_size );
-
-      lseek(pfd, 0, SEEK_SET);
-      if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-        fprintf( stderr, "Failed to unlock file\n" );
-      }
-
-      close(pfd);
-      return 1;
+    for ( loopcount = 0; loopcount < ourtouchheader->sets; loopcount++ ) {
+      printf("%s:%i\n", setHeader->path, getTimePerSample( setHeader->period ) );
+      ptr = (char *)setHeader;
+      ptr += sizeof( rrdbTouchSet ) + ( ourtouchheader->samplesPerSet * sizeof( rrdbInt ) );
+      setHeader = ( rrdbTouchSet * ) ptr;
     }
 
-    if( -1 == readRRDBFile(pfd, &fileData) ) {
-      lseek(pfd, 0, SEEK_SET);
-      if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-        fprintf( stderr, "Failed to unlock file\n" );
-      }
-      close(pfd);
-      return -1;
-    }
+    munmap( ( char * ) addr, sb.st_size );
 
-    printf("Version is %i\n", fileData.header.fileVersion);
-    printf("Number of sets %i\n", fileData.header.setCount);
-    printf("Number of samples %i\n", fileData.header.sampleCount);
-    printf("Current window position %i\n", fileData.header.windowPosition);
-    printf("Contains #%i xformations\n", fileData.xformheader.xformCount);
-
-    for ( i = 0 ; i < fileData.xformheader.xformCount; i++ )
-    {
-        switch(fileData.xforms[i].calc)
-        {
-            case RRDBMAX:
-                printf("RRDBMAX:");
-                break;
-
-            case RRDBMIN:
-                printf("RRDBMIN:");
-                break;
-
-            case RRDBCOUNT:
-                printf("RRDBCOUNT:");
-                break;
-
-            case RRDBMEAN:
-                printf("RRDBMEAN:");
-                break;
-
-            case RRDBSUM:
-                printf("RRDBSUM:");
-                break;
-
-            default:
-                break;
-        }
-
-        switch(fileData.xforms[i].period)
-        {
-            case FIVEMINUTE:
-                printf("FIVEMINUTE\n");
-                break;
-
-            case ONEHOUR:
-                printf("ONEHOUR\n");
-                break;
-
-            case SIXHOUR:
-                printf("SIXHOUR\n");
-                break;
-
-            case TWELVEHOUR:
-                printf("TWELVEHOUR\n");
-                break;
-
-            case ONEDAY:
-                printf("ONEDAY\n");
-                break;
-
-            default:
-                break;
-        }
-    }
-
-    freeRRDBFile(&fileData);
-    lseek(pfd, 0, SEEK_SET);
-    if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-      fprintf( stderr, "Failed to unlock file\n" );
-    }
-    close(pfd);
-
+    unlockandclose( pfd );
     return 1;
+  }
+
+  if( -1 == readRRDBFile(pfd, &fileData) ) {
+    unlockandclose( pfd );
+    return -1;
+  }
+
+  printf("Version is %i\n", fileData.header.fileVersion);
+  printf("Number of sets %i\n", fileData.header.setCount);
+  printf("Number of samples %i\n", fileData.header.sampleCount);
+  printf("Current window position %i\n", fileData.header.windowPosition);
+  printf("Contains #%i xformations\n", fileData.xformheader.xformCount);
+
+  for ( i = 0 ; i < fileData.xformheader.xformCount; i++ ) {
+    switch(fileData.xforms[i].calc) {
+      case RRDBMAX:
+        printf("RRDBMAX:");
+        break;
+
+      case RRDBMIN:
+        printf("RRDBMIN:");
+        break;
+
+      case RRDBCOUNT:
+        printf("RRDBCOUNT:");
+        break;
+
+      case RRDBMEAN:
+        printf("RRDBMEAN:");
+        break;
+
+      case RRDBSUM:
+        printf("RRDBSUM:");
+        break;
+
+      default:
+        break;
+    }
+
+    switch(fileData.xforms[i].period) {
+      case FIVEMINUTE:
+        printf("FIVEMINUTE\n");
+        break;
+
+      case ONEHOUR:
+        printf("ONEHOUR\n");
+        break;
+
+      case SIXHOUR:
+        printf("SIXHOUR\n");
+        break;
+
+      case TWELVEHOUR:
+        printf("TWELVEHOUR\n");
+        break;
+
+      case ONEDAY:
+        printf("ONEDAY\n");
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  freeRRDBFile(&fileData);
+  unlockandclose( pfd );
+
+  return 1;
 }
 
 /************************************************************************************
  * Function: modifyRRDBFile
  * Written: 22nd June 2021 By: Nick Knight
  ************************************************************************************/
-int modifyRRDBFile(char *filename, char* vals, char* xform)
-{
-    rrdbFile fileData;
-    int ixform;
-    int pfd;
+int modifyRRDBFile(char *filename, char* vals, char* xform) {
+  rrdbFile fileData;
+  int ixform;
+  int pfd;
 
-    if ((pfd = open(filename, O_RDWR )) == -1) {
-      printf("ERROR: failed to open %s for O_RDWR\n", filename);
-      return -1;
-    }
+  if ( ( pfd = readwriteopenandlock( filename ) ) == -1 ) {
+    printf( "ERROR: failed to open %s\n", filename );
+    return -1;
+  }
 
-    /* Lock */
-    if( 0 != lockf(pfd, F_LOCK, 1) ) {
-      close(pfd);
-      printf("ERROR: Failed to acquire lock for %s\n", filename);
-      return -1;
-    }
+  if ( RRDBTOUCHV2 == getFileVersion( pfd ) ) {
+    printf("Unsupported version V2\n");
+    unlockandclose( pfd );
+    return -1;
+  }
 
-    if ( RRDBTOUCHV2 == getFileVersion( pfd ) ) {
-      printf("Unsupported version V2\n");
-      goto finishmodify;
-    }
+  if( -1 == readRRDBFile(pfd, &fileData) ) {
+    unlockandclose( pfd );
+    return -1;
+  }
 
-    if( -1 == readRRDBFile(pfd, &fileData) ) {
-      lseek(pfd, 0, SEEK_SET);
-      if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-        fprintf( stderr, "Failed to unlock file\n" );
-      }
-      close(pfd);
-      return -1;
-    }
+  printf("Version is %i\n", fileData.header.fileVersion);
+  printf("Number of sets %i\n", fileData.header.setCount);
+  printf("Number of samples %i\n", fileData.header.sampleCount);
+  printf("Current window position %i\n", fileData.header.windowPosition);
+  printf("Contains #%i xformations\n", fileData.xformheader.xformCount);
 
-    printf("Version is %i\n", fileData.header.fileVersion);
-    printf("Number of sets %i\n", fileData.header.setCount);
-    printf("Number of samples %i\n", fileData.header.sampleCount);
-    printf("Current window position %i\n", fileData.header.windowPosition);
-    printf("Contains #%i xformations\n", fileData.xformheader.xformCount);
+  // vals == "time:val" i.e. "1234:111"
+  // OR
+  // 1234.33:111 - raw data has a usec component also
+  char *token;
+  time_t indextime = 0;
+  rrdbTimemSeconds usec = 0;
 
-    // vals == "time:val" i.e. "1234:111"
-    // OR
-    // 1234.33:111 - raw data has a usec component also
-    char *token;
-    time_t indextime = 0;
-    rrdbTimemSeconds usec = 0;
+  if( NULL != strchr( vals, '.' ) ) {
+    token = strtok( vals, "." );
+    indextime = atol( token );
 
-    if( NULL != strchr( vals, '.' ) )
-    {
-        token = strtok( vals, "." );
-        indextime = atol( token );
-
-        token = strtok( NULL, ":" );
-        usec = atoi( token );
-    }
-    else
-    {
-        token = strtok( vals, ":" );
-        indextime = atol( token );
-    }
     token = strtok( NULL, ":" );
-    long double newvalue = atof( token );
+    usec = atoi( token );
+  } else {
+    token = strtok( vals, ":" );
+    indextime = atol( token );
+  }
+  token = strtok( NULL, ":" );
+  long double newvalue = atof( token );
 
-    if( strlen(xform) > 0 )
-    {
-      ixform = atoi(xform);
-      printf("Modifying xform %i, time %ld, new value %Lf\n", ixform, indextime, newvalue );
+  if( strlen(xform) > 0 ) {
+    ixform = atoi(xform);
+    printf("Modifying xform %i, time %ld, new value %Lf\n", ixform, indextime, newvalue );
 
-      if( ixform > fileData.xformheader.xformCount )
-      {
-        printf("xform out of range\n");
+    if( ixform > fileData.xformheader.xformCount ) {
+      printf("xform out of range\n");
+      freeRRDBFile(&fileData);
+      unlockandclose( pfd );
+      return -1;
+    }
+
+    for ( int i = 0 ; i < fileData.header.sampleCount; i++ ) {
+      if( indextime == fileData.xformtimes[ixform][i].time ) {
+        printf("Modifying %ld:%Lf\n", fileData.xformtimes[ixform][i].time, fileData.xformdata[ixform][i] );
+        fileData.xformdata[ixform][i] = newvalue;
         goto finishmodify;
       }
-
-      for ( int i = 0 ; i < fileData.header.sampleCount; i++ )
-      {
-        if( indextime == fileData.xformtimes[ixform][i].time )
-        {
-          printf("Modifying %ld:%Lf\n", fileData.xformtimes[ixform][i].time, fileData.xformdata[ixform][i] );
-          fileData.xformdata[ixform][i] = newvalue;
-          goto finishmodify;
-        }
-      }
-      goto finishnomodify;
     }
+    
+    freeRRDBFile(&fileData);
+    unlockandclose( pfd );
+    return -1;
+  }
 
-    printf("Modifying raw data, time %ld.%i, with new value %Lf\n", indextime, usec, newvalue );
-    for ( int i = 0 ; i < fileData.header.sampleCount; i++ ) {
-      if ( 1 == fileData.times[i].valid ) {
-        if( indextime == fileData.times[i].time &&
-            usec == fileData.times[i].uSecs ) {
-          for ( int j = 0 ; j < fileData.header.setCount; j++ ) {
-            printf("Modifying raw data time %ld.%i ;old value %Lf; new value %Lf\n", fileData.times[i].time, fileData.times[i].uSecs, fileData.sets[j][i], newvalue );
-            fileData.sets[j][i] = newvalue;
-          }
-          goto finishmodify;
+  printf("Modifying raw data, time %ld.%i, with new value %Lf\n", indextime, usec, newvalue );
+  for ( int i = 0 ; i < fileData.header.sampleCount; i++ ) {
+    if ( 1 == fileData.times[i].valid ) {
+      if( indextime == fileData.times[i].time &&
+          usec == fileData.times[i].uSecs ) {
+        for ( int j = 0 ; j < fileData.header.setCount; j++ ) {
+          printf("Modifying raw data time %ld.%i ;old value %Lf; new value %Lf\n", fileData.times[i].time, fileData.times[i].uSecs, fileData.sets[j][i], newvalue );
+          fileData.sets[j][i] = newvalue;
         }
+        goto finishmodify;
       }
     }
+  }
 
-    goto finishnomodify;
+  goto finishnomodify;
 
 finishmodify:
 
-    if ( -1 == writeRRDBFile(pfd, &fileData) )
-      fprintf( stderr, "Could not write data to RRDB file\n");
+  if ( -1 == writeRRDBFile(pfd, &fileData) )
+    fprintf( stderr, "Could not write data to RRDB file\n");
 
 finishnomodify:
 
-    freeRRDBFile(&fileData);
-    lseek(pfd, 0, SEEK_SET);
-    if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-      fprintf( stderr, "Failed to unlock file\n" );
-    }
-    close(pfd);
+  freeRRDBFile(&fileData);
+  unlockandclose( pfd );
 
-    return 1;
+  return 1;
 }
 
 
@@ -925,229 +888,209 @@ finishnomodify:
  *
  * Written: 9th March 2013 By: Nick Knight
  ************************************************************************************/
-int updateRRDBFile(char *filename, char* vals)
-{
-    rrdbFile fileData;
-    unsigned int i;
-    char *result = NULL;
-    const char delims[] = ":";
-    struct timeval t1;
+int updateRRDBFile(char *filename, char* vals) {
+  rrdbFile fileData;
+  unsigned int i;
+  char *result = NULL;
+  const char delims[] = ":";
+  struct timeval t1;
 
-    struct timeval xformstart;
-    rrdbNumber xformResult;
+  struct timeval xformstart;
+  rrdbNumber xformResult;
 
-    struct tm *current_tm;
-    time_t current_time;
+  struct tm *current_tm;
+  time_t current_time;
 
-    int pfd;
+  int pfd;
 
-    xformstart = (struct timeval){0};
+  xformstart = (struct timeval){0};
 
-    if ((pfd = open(filename, O_RDWR )) == -1) {
-      printf("ERROR: failed to open %s for O_RDWR\n", filename);
-      return -1;
+  if( ( pfd = readwriteopenandlock( filename ) ) == -1 ) {
+    printf("ERROR: failed to open %s for O_RDWR\n", filename);
+    return -1;
+  }
+
+  /*
+    read in the header to get the window position and make
+    sure the set count is correct
+    */
+  if( -1 == readRRDBFile(pfd, &fileData) ) {
+    unlockandclose( pfd );
+    return -1;
+  }
+
+  /*
+    Move round on 1
+    */
+  fileData.header.windowPosition = ( fileData.header.windowPosition + 1 ) % fileData.header.sampleCount;
+
+  /*
+    times
+    */
+
+  fileData.times[fileData.header.windowPosition].valid = 1;
+  gettimeofday(&t1, NULL);
+  fileData.times[fileData.header.windowPosition].time = t1.tv_sec;
+  fileData.times[fileData.header.windowPosition].uSecs = t1.tv_usec;
+
+
+  /*
+    The vals are a string of seperated vales in the format of num:num:num
+    1 for each set we have in the file.
+    */
+
+  result = strtok( vals, delims );
+  for ( i = 0 ; i < fileData.header.setCount; i++ ) {
+    if ( NULL != result )
+      fileData.sets[i][fileData.header.windowPosition] = atof(result);
+    else
+      fileData.sets[i][fileData.header.windowPosition] = 0;
+
+    result = strtok( NULL, delims );
+  }
+
+  /*
+    * Now we need to update our xformations (xforms) current_tm->tm_hour = 0;
+    */
+  current_time = t1.tv_sec;
+
+  for ( i = 0; i < fileData.xformheader.xformCount; i++) {
+    current_tm = gmtime(&current_time);
+
+    switch (fileData.xforms[i].period) {
+      case FIVEMINUTE:
+        current_tm->tm_sec = 0;
+        /* move to the start of the nearest 5 minutes */
+        current_tm->tm_min = ((int)(current_tm->tm_min/5))*5;
+
+
+        xformstart.tv_sec = mktime(current_tm);
+        xformstart.tv_usec = 0;
+        break;
+
+      case ONEHOUR:
+        current_tm->tm_sec = 0;
+        current_tm->tm_min = 0;
+
+        xformstart.tv_sec = mktime(current_tm);
+        xformstart.tv_usec = 0;
+        break;
+
+      case SIXHOUR:
+        current_tm->tm_sec = 0;
+        current_tm->tm_min = 0;
+        current_tm->tm_hour = ((int)(current_tm->tm_hour/6))*6;
+
+        xformstart.tv_sec = mktime(current_tm);
+        xformstart.tv_usec = 0;
+        break;
+
+      case TWELVEHOUR:
+        current_tm->tm_sec = 0;
+        current_tm->tm_min = 0;
+        current_tm->tm_hour = ((int)(current_tm->tm_hour/12))*12;
+
+        xformstart.tv_sec = mktime(current_tm);
+        xformstart.tv_usec = 0;
+        break;
+
+      case ONEDAY:
+        current_tm->tm_sec = 0;
+        current_tm->tm_min = 0;
+        current_tm->tm_hour = 0;
+
+        xformstart.tv_sec = mktime(current_tm);
+        xformstart.tv_usec = 0;
+        break;
+
+      default:
+        break;
     }
 
-    /* Lock */
-    if( 0 != lockf(pfd, F_LOCK, 1) ) {
-      close(pfd);
-      printf("ERROR: failed to acqure lock for %s\n", filename);
-      return -1;
+    xformResult = 0;
+
+    /*
+      The value should be placed in the current windowed position, if still valid (i.e. updated)
+      or if it is now outside the time window moved on 1.
+      */
+    unsigned int writeWindowPosition = fileData.xforms[i].windowPosition;
+    int movedon = FALSE;
+    if( fileData.xformtimes[i][fileData.xforms[i].windowPosition].time != xformstart.tv_sec ) {
+      /* we need to move on the window... */
+      writeWindowPosition = (fileData.xforms[i].windowPosition + 1 ) % fileData.header.sampleCount;
+      movedon = TRUE;
     }
 
-    /*
-     read in the header to get the window position and make
-     sure the set count is correct
-     */
-    if( -1 == readRRDBFile(pfd, &fileData) ) {
-      lseek(pfd, 0, SEEK_SET);
-      if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-        fprintf( stderr, "Failed to unlock file\n" );
-      }
-      close(pfd);
-      return -1;
-    }
-
-    /*
-     Move round on 1
-     */
-    fileData.header.windowPosition = ( fileData.header.windowPosition + 1 ) % fileData.header.sampleCount;
-
-    /*
-     times
-     */
-
-    fileData.times[fileData.header.windowPosition].valid = 1;
-    gettimeofday(&t1, NULL);
-    fileData.times[fileData.header.windowPosition].time = t1.tv_sec;
-    fileData.times[fileData.header.windowPosition].uSecs = t1.tv_usec;
-
-
-    /*
-     The vals are a string of seperated vales in the format of num:num:num
-     1 for each set we have in the file.
-     */
-
-    result = strtok( vals, delims );
-    for ( i = 0 ; i < fileData.header.setCount; i++ ) {
-        if ( NULL != result )
-          fileData.sets[i][fileData.header.windowPosition] = atof(result);
+    switch (fileData.xforms[i].calc) {
+      case RRDBMAX:
+        if( TRUE == movedon )
+          xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
         else
-          fileData.sets[i][fileData.header.windowPosition] = 0;
+          xformResult = MAX( fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition],
+                              fileData.xformdata[i][writeWindowPosition] );
+        break;
 
-        result = strtok( NULL, delims );
+      case RRDBMIN:
+        if( TRUE == movedon )
+          xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
+        else
+          xformResult = MIN( fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition],
+                              fileData.xformdata[i][writeWindowPosition] );
+        break;
+
+      case RRDBCOUNT:
+        if( TRUE == movedon )
+          xformResult = 1;
+        else
+          xformResult = fileData.xformdata[i][writeWindowPosition] + 1;
+
+        break;
+
+      case RRDBMEAN:
+      {
+        unsigned int countWindowPosition = (writeWindowPosition + 1) % fileData.header.sampleCount;
+        if( TRUE == movedon ) {
+          /* We use the next slot to store our running count so we can add to the average - and hide it */
+          fileData.xformtimes[i][countWindowPosition].valid = FALSE;
+          fileData.xformdata[i][countWindowPosition] = 1;
+          xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
+        } else {
+          rrdbNumber countinmean = fileData.xformdata[i][countWindowPosition];
+          if( countinmean <= 0 ) countinmean = 1; /* allow for corruption */
+          rrdbNumber reversemean = fileData.xformdata[i][writeWindowPosition] * countinmean;
+          rrdbNumber newval = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
+          xformResult = ( reversemean + newval ) /
+                        ( countinmean + 1 );
+
+          fileData.xformdata[i][countWindowPosition]++;
+        }
+        break;
+      }
+      case RRDBSUM:
+        if( TRUE == movedon )
+          xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
+        else
+          xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition] +
+                              fileData.xformdata[i][writeWindowPosition];
+        break;
+
+      default:
+          break;
     }
 
-    /*
-     * Now we need to update our xformations (xforms) current_tm->tm_hour = 0;
-     */
-    current_time = t1.tv_sec;
+    fileData.xformdata[i][writeWindowPosition] = xformResult;
+    fileData.xformtimes[i][writeWindowPosition].time = xformstart.tv_sec;
+    fileData.xformtimes[i][writeWindowPosition].uSecs = 0;
+    fileData.xformtimes[i][writeWindowPosition].valid = TRUE;
+    fileData.xforms[i].windowPosition = writeWindowPosition;
+  }
 
-    for ( i = 0; i < fileData.xformheader.xformCount; i++) {
-        current_tm = gmtime(&current_time);
-
-        switch (fileData.xforms[i].period) {
-            case FIVEMINUTE:
-                current_tm->tm_sec = 0;
-                /* move to the start of the nearest 5 minutes */
-                current_tm->tm_min = ((int)(current_tm->tm_min/5))*5;
-
-
-                xformstart.tv_sec = mktime(current_tm);
-                xformstart.tv_usec = 0;
-                break;
-
-            case ONEHOUR:
-                current_tm->tm_sec = 0;
-                current_tm->tm_min = 0;
-
-                xformstart.tv_sec = mktime(current_tm);
-                xformstart.tv_usec = 0;
-                break;
-
-            case SIXHOUR:
-                current_tm->tm_sec = 0;
-                current_tm->tm_min = 0;
-                current_tm->tm_hour = ((int)(current_tm->tm_hour/6))*6;
-
-                xformstart.tv_sec = mktime(current_tm);
-                xformstart.tv_usec = 0;
-                break;
-
-            case TWELVEHOUR:
-                current_tm->tm_sec = 0;
-                current_tm->tm_min = 0;
-                current_tm->tm_hour = ((int)(current_tm->tm_hour/12))*12;
-
-                xformstart.tv_sec = mktime(current_tm);
-                xformstart.tv_usec = 0;
-                break;
-
-            case ONEDAY:
-                current_tm->tm_sec = 0;
-                current_tm->tm_min = 0;
-                current_tm->tm_hour = 0;
-
-                xformstart.tv_sec = mktime(current_tm);
-                xformstart.tv_usec = 0;
-                break;
-
-            default:
-                break;
-        }
-
-        xformResult = 0;
-
-        /*
-         The value should be placed in the current windowed position, if still valid (i.e. updated)
-         or if it is now outside the time window moved on 1.
-         */
-        unsigned int writeWindowPosition = fileData.xforms[i].windowPosition;
-        int movedon = FALSE;
-        if( fileData.xformtimes[i][fileData.xforms[i].windowPosition].time != xformstart.tv_sec ) {
-            /* we need to move on the window... */
-            writeWindowPosition = (fileData.xforms[i].windowPosition + 1 ) % fileData.header.sampleCount;
-            movedon = TRUE;
-        }
-
-        switch (fileData.xforms[i].calc) {
-            case RRDBMAX:
-                if( TRUE == movedon )
-                  xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-                else
-                  xformResult = MAX( fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition],
-                                     fileData.xformdata[i][writeWindowPosition] );
-                break;
-
-            case RRDBMIN:
-                if( TRUE == movedon )
-                  xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-                else
-                  xformResult = MIN( fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition],
-                                     fileData.xformdata[i][writeWindowPosition] );
-                break;
-
-            case RRDBCOUNT:
-                if( TRUE == movedon )
-                  xformResult = 1;
-                else
-                  xformResult = fileData.xformdata[i][writeWindowPosition] + 1;
-
-                break;
-
-            case RRDBMEAN:
-            {
-                unsigned int countWindowPosition = (writeWindowPosition + 1) % fileData.header.sampleCount;
-                if( TRUE == movedon ) {
-                  /* We use the next slot to store our running count so we can add to the average - and hide it */
-                  fileData.xformtimes[i][countWindowPosition].valid = FALSE;
-                  fileData.xformdata[i][countWindowPosition] = 1;
-                  xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-                } else {
-                  rrdbNumber countinmean = fileData.xformdata[i][countWindowPosition];
-                  if( countinmean <= 0 ) countinmean = 1; /* allow for corruption */
-                  rrdbNumber reversemean = fileData.xformdata[i][writeWindowPosition] * countinmean;
-                  rrdbNumber newval = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-                  xformResult = ( reversemean + newval ) /
-                                ( countinmean + 1 );
-
-                  fileData.xformdata[i][countWindowPosition]++;
-                }
-                break;
-            }
-            case RRDBSUM:
-                if( TRUE == movedon )
-                  xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-                else
-                  xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition] +
-                                     fileData.xformdata[i][writeWindowPosition];
-                break;
-
-            default:
-                break;
-        }
-
-        fileData.xformdata[i][writeWindowPosition] = xformResult;
-        fileData.xformtimes[i][writeWindowPosition].time = xformstart.tv_sec;
-        fileData.xformtimes[i][writeWindowPosition].uSecs = 0;
-        fileData.xformtimes[i][writeWindowPosition].valid = TRUE;
-        fileData.xforms[i].windowPosition = writeWindowPosition;
-    }
-
-    /*
-     Now write it
-     */
-    int retval = 1;
-    if ( -1 == writeRRDBFile(pfd, &fileData) ) retval = -1;
-
-
-    freeRRDBFile(&fileData);
-    lseek(pfd, 0, SEEK_SET);
-    if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-      fprintf( stderr, "Failed to unlock file\n" );
-    }
-    close(pfd);
-    return retval;
+  /* Now write it */
+  int retval = 1;
+  if ( -1 == writeRRDBFile(pfd, &fileData) ) retval = -1;
+  freeRRDBFile(&fileData);
+  unlockandclose( pfd );
+  return retval;
 }
 
 /************************************************************************************
@@ -1428,25 +1371,14 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
     sampleCount = TOUCHDEFAULTSAMPLECOUNT;
   }
 
-  if ((pfd = open(filename, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH )) == -1) {
+  if ( ( pfd = createopenandlock( filename ) ) == -1 ) {
     /* failure - should only ouput one error - perhaps need to put this somewhere else?*/
-    int errsv = errno;
-    printf("ERROR: failed to open %s for O_RDWR (%s)\n", filename, strerror(errsv));
-    return -1;
-  }
-
-  if( 0 != lockf(pfd, F_LOCK, 1) ) {
-    close(pfd);
-    printf("ERROR: failed to acquire lock for file %s\n", filename);
+    printf( "ERROR: failed to open %s\n", filename );
     return -1;
   }
 
   if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
-    lseek(pfd, 0, SEEK_SET);
-    if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-      fprintf( stderr, "Failed to unlock file\n" );
-    }
-    close(pfd);
+    unlockandclose( pfd );
     printf("ERROR: Couldn't stat RRDB file(1)\n");
     return -1;
   }
@@ -1480,13 +1412,7 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
 
   if ( RRDBTOUCHV2 != getFileVersion( pfd ) ) {
     printf("ERROR: Bad format for RRDB touch file\n");
-    /* Unlock and close. */
-    lseek(pfd, 0, SEEK_SET);
-    if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-      fprintf( stderr, "failed to release lock for file\n" );
-    }
-
-    close(pfd);
+    unlockandclose( pfd );
     return -1;
   }
 
@@ -1525,12 +1451,7 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
 
   /* Remove any sets which haven't been touched for longer than the set size */
   if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
-    lseek(pfd, 0, SEEK_SET);
-    if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-      fprintf( stderr, "failed to release lock for file\n" );
-    }
-
-    close(pfd);
+    unlockandclose( pfd );
     printf("ERROR: Failed to stat RRDB file (3)\n");
     return -1;
   }
@@ -1567,121 +1488,110 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
   }
 
   munmap( addr, sb.st_size );
-
-  /* Unlock and close. */
-  lseek(pfd, 0, SEEK_SET);
-  if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-    fprintf( stderr, "Failed to unlock file\n" );
-  }
-
-  close(pfd);
-
-  return 0;
+  unlockandclose( pfd );
+  return 1;
 }
 
+/**
+ * @return { int } 1 on success -1 on failure
+*/
+int runfetch( char *filename, char *xformations, char * cperiod ) {
 
-/************************************************************************************
- * Function: runCommand
- *
- * Purpose: runs the command
- *
+  int pfd;
+  rrdbFile ourFile;
+  int retval = 1;
+
+  if( ( pfd = readwriteopenandlock( filename ) ) == -1) {
+    printf( "ERROR: failed to open rrdb file '%s'\n", filename );
+    return -1;
+  }
+
+  switch( getFileVersion( pfd ) ) {
+    case RRDBV1:
+      if( -1 == readRRDBFile( pfd, &ourFile ) ) break;
+
+      if ( 0 != strlen( xformations ) ) {
+        if ( -1 == printRRDBFileXform( &ourFile, atoi( xformations ) ) ) {
+          retval = -1;
+        }
+      } else {
+        if ( -1 == printRRDBFile( &ourFile ) ) {
+          retval = -1;
+        }
+      }
+
+      freeRRDBFile( &ourFile );
+      break;
+    case RRDBTOUCHV2:
+      printRRDBTouchFile( pfd, xformations, cperiod );
+      break;
+    default:
+      printf("ERROR: Unknown file format\n");
+      retval = -1;
+      break;
+  }
+
+  unlockandclose( pfd );
+  return retval;
+}
+
+/**
+ * @return { int } 1 on success -1 on failure.
+*/
+int runcreate( char *filename, unsigned int sampleCount, unsigned int setCount, char *xformations ) {
+
+  int pfd;
+  if ( 0 >= sampleCount ) {
+    printf("ERROR: sample count too small, must be more than zero.\n");
+    return -1;
+  }
+
+  if ( -1 == ( pfd = initRRDBFile(filename, setCount, sampleCount, xformations)) ) {
+    printf( "ERROR: writing db file error" );
+    return -1;
+  }
+
+  unlockandclose( pfd );
+  return 1;
+}
+
+/**
+ * runs the command
  * Written: 10th March 2013 By: Nick Knight
- ************************************************************************************/
-int runCommand(char *filename, RRDBCommand ourCommand, unsigned int sampleCount, unsigned int setCount, char *values, char *xformations, char * cperiod)
-{
-    rrdbFile ourFile;
-    int pfd;
-    int retval = 1;
+ */
+int runCommand(char *filename, RRDBCommand ourCommand, unsigned int sampleCount, unsigned int setCount, char *values, char *xformations, char * cperiod) {
 
-    switch(ourCommand)
-    {
-        case CREATE:
-            if ( 0 >= sampleCount ) {
-                printf("ERROR: sample count too small, must be more than zero.\n");
-                return -1;
-            }
+  switch( ourCommand ) {
+    case CREATE:
+      return runcreate( filename, sampleCount, setCount, xformations );
+      break;
 
-            if ( -1 == ( pfd = initRRDBFile(filename, setCount, sampleCount, xformations)) ) {
-                printf("ERROR: writing db file error");
-                return -1;
-            }
-            lseek(pfd, 0, SEEK_SET);
-            if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-              fprintf( stderr, "Failed to unlock file\n" );
-            }
-            close(pfd);
-            break;
+    case FETCH:
+      return runfetch( filename, xformations, cperiod );
+      break;
 
-        case FETCH:
-            if( ( pfd = open(filename, O_RDWR ) ) == -1) {
-              printf("ERROR: failed to read rrdb file '%s'\n", filename);
-              return -1;
-            }
+    case UPDATE:
+      /* we should be given a value for each set we have */
+      return updateRRDBFile( filename, &values[ 0 ] );
+      break;
 
-            /* Lock */
-            if( 0 != lockf(pfd, F_LOCK, 1) ) {
-              printf("ERROR: failed to acquire lock read for rrdb file '%s'\n", filename);
-              return -1;
-            }
+    case MODIFY:
+      return  modifyRRDBFile( filename, values, xformations );
+      break;
 
-            switch( getFileVersion( pfd ) ) {
-              case RRDBV1:
-                if( -1 == readRRDBFile(pfd, &ourFile) ) goto getoutfetch;
+    case INFO:
+      return printRRDBFileInfo(filename);
+      break;
 
-                if ( 0 != strlen(xformations) ) {
-                  if ( -1 == printRRDBFileXform(&ourFile, atoi(xformations))) {
-                    retval = -1;
-                    goto getoutfetch;
-                  }
-                } else {
-                  if ( -1 == printRRDBFile(&ourFile)) {
-                    retval = -1;
-                    goto getoutfetch;
-                  }
-                }
+    case TOUCH:
+      return touchRRDBFile(filename, xformations, cperiod, setCount, sampleCount);
+      break;
 
-                freeRRDBFile(&ourFile);
-                break;
-              case RRDBTOUCHV2:
-                printRRDBTouchFile( pfd, xformations, cperiod );
-                break;
-              default:
-                printf("ERROR: Unknown file format\n");
-                retval = -1;
-                goto getoutfetch;
-                break;
-            }
-getoutfetch:
-            lseek(pfd, 0, SEEK_SET);
-            if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-              fprintf( stderr, "Failed to unlock file\n" );
-            }
-            close(pfd);
+    case PIPE:
+      break;
+  }
 
-            break;
-
-        case UPDATE:
-            /* we should be given a value for each set we have */
-            if ( -1 ==  updateRRDBFile(filename, &values[0])) return -1;
-            break;
-
-        case MODIFY:
-            if ( -1 ==  modifyRRDBFile(filename, values, xformations)) return -1;
-            break;
-
-        case INFO:
-            if ( -1 == printRRDBFileInfo(filename) ) return -1;
-            break;
-
-        case TOUCH:
-            touchRRDBFile(filename, xformations, cperiod, setCount, sampleCount);
-            break;
-
-        case PIPE:
-            break;
-    }
-
-    return retval;
+  return -1;
 }
 
 /************************************************************************************
@@ -1718,7 +1628,7 @@ int waitForInput(char *dir) {
   char fulldirname[PATH_MAX + NAME_MAX];
 
   command[0] = 0;
-  while( 1 ) {
+  while( TRUE ) {
     ic = fgetc( stdin );
     if( EOF == ic ) return -1;
     c = ic;

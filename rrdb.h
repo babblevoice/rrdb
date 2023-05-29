@@ -45,8 +45,7 @@ typedef enum {RRDBV1 = 1, RRDBTOUCHV2} RRDBVersions;
 /*
  * File structure for our db file
  */
-typedef struct rrdbHeader
-{
+typedef struct rrdbHeader {
   /*
    File version and check the file looks sensible.
    */
@@ -67,8 +66,7 @@ typedef struct rrdbHeader
 } rrdbHeader;
 
 
-typedef struct rrdbTimePoint
-{
+typedef struct rrdbTimePoint {
     /* UNIX Time (EPOCH) */
 	rrdbTimeEpochSeconds time;
     /* uS after the timeSinceEpoch */
@@ -81,8 +79,7 @@ typedef struct rrdbTimePoint
 typedef enum {FIVEMINUTE = 0, ONEHOUR = 1, SIXHOUR = 2, TWELVEHOUR = 3, ONEDAY = 4} RRDBTimePeriods;
 typedef enum {RRDBMAX = 0, RRDBMIN = 1, RRDBCOUNT = 2, RRDBMEAN = 3, RRDBSUM = 4} RRDBCalculation;
 
-typedef struct rrdbTouchHeader
-{
+typedef struct rrdbTouchHeader {
   /*
    Just check the file looks sensible.
    */
@@ -92,11 +89,9 @@ typedef struct rrdbTouchHeader
   unsigned int samplesPerSet;
 } rrdbTouchHeader;
 
-typedef struct rrdbTouchSet
-{
+typedef struct rrdbTouchSet {
   /* UNIX Time (EPOCH) */
   rrdbTimeEpochSeconds lastTouch;
-
 
   /* The name of the header which will be passed to us. */
   char path[TOUCHMAXPATHLENGTH];
@@ -106,41 +101,42 @@ typedef struct rrdbTouchSet
 
 } rrdbTouchSet;
 
-typedef struct rrdbXformsHeader
-{
-    unsigned int xformCount;
+typedef struct rrdbXformsHeader {
+  unsigned int xformCount;
 
 } rrdbXformsHeader;
 
-typedef struct rrdbXformHeader
-{
-    unsigned int period;
-    unsigned int calc;
-    unsigned int setIndex;
-    /* each xform has to maintain its own position as it will differ as they all have differing time periods */
-    unsigned int windowPosition;
+typedef struct rrdbXformHeader {
+  unsigned int period;
+  unsigned int calc;
+  unsigned int setIndex;
+  /* each xform has to maintain its own position as it will differ as they all have differing time periods */
+  unsigned int windowPosition;
 
 } rrdbXformHeader;
 
 
-typedef struct rrdbFile
-{
+typedef struct rrdbFile {
 	rrdbHeader header;
     /* The time values for each point */
 	rrdbTimePoint *times;
 
-    /* array of pointers */
-    rrdbNumber *sets[MAXNUMSETS];
-    rrdbXformsHeader xformheader;
+  /* array of pointers */
+  rrdbNumber *sets[MAXNUMSETS];
+  rrdbXformsHeader xformheader;
 
-    /* array of pointers to our xformations */
-    rrdbXformHeader xforms[MAXNUMSETS * MAXNUMXFORMPERSET];
+  /* array of pointers to our xformations */
+  rrdbXformHeader xforms[MAXNUMSETS * MAXNUMXFORMPERSET];
 
-    rrdbTimePoint *xformtimes[MAXNUMSETS * MAXNUMXFORMPERSET];
-    rrdbNumber *xformdata[MAXNUMSETS * MAXNUMXFORMPERSET];
+  rrdbTimePoint *xformtimes[MAXNUMSETS * MAXNUMXFORMPERSET];
+  rrdbNumber *xformdata[MAXNUMSETS * MAXNUMXFORMPERSET];
 
 } rrdbFile;
 
+/* file helpers */
+int createopenandlock( char *filename );
+int readwriteopenandlock( char *filename );
+int unlockandclose( int pfd );
 
 int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount , char *xformations);
 int readRRDBFile(int pfd, rrdbFile *fileData); /* RRDB V1 */
@@ -152,6 +148,9 @@ int printRRDBFile(rrdbFile *fileData);
 int printRRDBFileInfo(char *filename);
 int printRRDBFileXform(rrdbFile *fileData, unsigned int index);
 int waitForInput(char *dir);
+
+int runfetch( char *filename, char *xformations, char * cperiod );
+int runcreate( char *filename, unsigned int sampleCount, unsigned int setCount, char *xformations );
 int runCommand(char *filename, RRDBCommand ourCommand, unsigned int sampleCount, unsigned int setCount, char *values, char *xformations, char * period);
 
 int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxsets, unsigned int sampleCount);

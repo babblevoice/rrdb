@@ -1696,157 +1696,130 @@ getoutfetch:
  *
  * Written: 10th March 2013 By: Nick Knight
  ************************************************************************************/
-int waitForInput(char *dir)
-{
+int waitForInput(char *dir) {
 
-    char c;
-    int ic;
-    char command[MAXCOMMANDLENGTH];
-    RRDBCommand ourCommand;
-    const char delims[] = " ";
-    unsigned int i = 0;
-    int pathlength = 0;
-    unsigned int sampleCount = 0;
-    unsigned int setCount = 0;
-    char values[MAXVALUESTRING];
-    values[0] = 0;
-    char *result = NULL;
-    char xformations[MAXVALUESTRING];
-    xformations[0] = 0;
+  char c;
+  int ic;
+  char command[MAXCOMMANDLENGTH];
+  RRDBCommand ourCommand;
+  const char delims[] = " ";
+  unsigned int i = 0;
+  int pathlength = 0;
+  unsigned int sampleCount = 0;
+  unsigned int setCount = 0;
+  char values[MAXVALUESTRING];
+  values[0] = 0;
+  char *result = NULL;
+  char xformations[MAXVALUESTRING];
+  xformations[0] = 0;
 
-    char period[MAXCOMMANDLENGTH];
+  char period[MAXCOMMANDLENGTH];
 
-    char fulldirname[PATH_MAX + NAME_MAX];
+  char fulldirname[PATH_MAX + NAME_MAX];
 
-    command[0] = 0;
-    while( 1 ) {
-        ic = fgetc( stdin );
-        if( EOF == ic ) exit( 0 );
-        c = ic;
-        if ( c == '\n' ) break;
-        if ( c == '\r' ) continue;
+  command[0] = 0;
+  while( 1 ) {
+    ic = fgetc( stdin );
+    if( EOF == ic ) return -1;
+    c = ic;
+    if ( c == '\n' ) break;
+    if ( c == '\r' ) continue;
 
-        command[i] = c;
-        command[i+1] = 0;
+    command[i] = c;
+    command[i+1] = 0;
 
-        if( i > ( MAXCOMMANDLENGTH - 5 ) ) {
-            printf("ERROR: command too long\n");
-            exit(1);
-        }
-
-        i++;
+    if( i > ( MAXCOMMANDLENGTH - 5 ) ) {
+      printf("ERROR: command too long\n");
+      return -1;
     }
 
-    if ( 0 == strlen(command))
-    {
+    i++;
+  }
+
+  if ( 0 == strlen(command)) return -1;
+
+  /* command */
+  result = strtok( command, delims );
+  if ( 0 == strcmp("create", result) ) {
+      ourCommand = CREATE;
+  } else if ( 0 == strcmp("update", result) ) {
+      ourCommand = UPDATE;
+  } else if ( 0 == strcmp("fetch", result) ) {
+      ourCommand = FETCH;
+  } else if ( 0 == strcmp("info", result) ) {
+      ourCommand = INFO;
+  } else if ( 0 == strcmp("touch", result) ) {
+    ourCommand = TOUCH;
+  } else {
+    /* we must have a command */
+    printf("ERROR: no valid command so quiting\n");
+    return -1;
+  }
+
+  /* filename */
+  strcpy(&fulldirname[0], &dir[0]);
+  pathlength = strlen(dir);
+  fulldirname[pathlength] = '/';
+  pathlength++;
+  fulldirname[pathlength] = 0;
+
+  result = strtok( NULL, delims );
+  strcpy(&fulldirname[pathlength], result);
+
+
+  /* setcount or values */
+  result = strtok( NULL, delims );
+  if ( NULL != result ) {
+    if ( CREATE == ourCommand || TOUCH == ourCommand ) {
+      setCount = atoi(result);
+    } else if ( FETCH == ourCommand ) {
+      if ( strlen(result) > MAXVALUESTRING ) {
+        printf("ERROR: Length of xformations string too long\n");
         return -1;
+      }
+      strcpy( &xformations[0], result );
+    } else {
+      if ( strlen(result) > MAXVALUESTRING ) {
+        printf("ERROR: Length of value string too long\n");
+        return -1;
+      }
+      strcpy( &values[0], result );
     }
+  }
 
-    /* command */
-    result = strtok( command, delims );
-    if ( 0 == strcmp("create", result) )
-    {
-        ourCommand = CREATE;
-    }
-    else if ( 0 == strcmp("update", result) )
-    {
-        ourCommand = UPDATE;
-    }
-    else if ( 0 == strcmp("fetch", result) )
-    {
-        ourCommand = FETCH;
-    }
-    else if ( 0 == strcmp("info", result) )
-    {
-        ourCommand = INFO;
-    }
-    else if ( 0 == strcmp("touch", result) )
-    {
-      ourCommand = TOUCH;
-    }
-    else
-    {
-        /* we must have a command */
-        printf("ERROR: no valid command so quiting\n");
+  /* samplecount */
+  result = strtok( NULL, delims );
+  if ( NULL != result ) {
+    /* Just in case this is a v2 touch. */
+    strcpy( &period[0], result );
+
+    /* or not */
+    sampleCount = atoi(result);
+  }
+
+  if ( CREATE == ourCommand || TOUCH == ourCommand ) {
+    result = strtok( NULL, delims );
+    if ( NULL != result ) {
+      if (strlen(result) > MAXVALUESTRING) {
+        printf("ERROR: Length of xformation string too long\n");
         exit(1);
+
+      }
+      strcpy( &xformations[0], result );
     }
+  }
 
-    /* filename */
-    strcpy(&fulldirname[0], &dir[0]);
-    pathlength = strlen(dir);
-    fulldirname[pathlength] = '/';
-    pathlength++;
-    fulldirname[pathlength] = 0;
-
+  if ( TOUCH == ourCommand ) {
     result = strtok( NULL, delims );
-    strcpy(&fulldirname[pathlength], result);
+    strcpy( &period[0], result );
+  }
 
+  if ( -1 == runCommand(fulldirname, ourCommand, sampleCount, setCount, values, xformations, period) ) {
+    return -1;
+  }
 
-    /* setcount or values */
-    result = strtok( NULL, delims );
-    if ( NULL != result )
-    {
-        if ( CREATE == ourCommand || TOUCH == ourCommand )
-        {
-            setCount = atoi(result);
-        }
-        else if ( FETCH == ourCommand )
-        {
-            if ( strlen(result) > MAXVALUESTRING )
-            {
-                printf("ERROR: Length of xformations string too long\n");
-                exit(1);
-            }
-            strcpy( &xformations[0], result );
-        }
-        else
-        {
-            if ( strlen(result) > MAXVALUESTRING )
-            {
-                printf("ERROR: Length of value string too long\n");
-                exit(1);
-            }
-            strcpy( &values[0], result );
-        }
-    }
-
-    /* samplecount */
-    result = strtok( NULL, delims );
-    if ( NULL != result )
-    {
-      /* Just in case this is a v2 touch. */
-      strcpy( &period[0], result );
-
-      /* or not */
-      sampleCount = atoi(result);
-    }
-
-    if ( CREATE == ourCommand || TOUCH == ourCommand )
-    {
-        result = strtok( NULL, delims );
-        if ( NULL != result )
-        {
-            if (strlen(result) > MAXVALUESTRING)
-            {
-                printf("ERROR: Length of xformation string too long\n");
-                exit(1);
-
-            }
-            strcpy( &xformations[0], result );
-        }
-    }
-
-    if ( TOUCH == ourCommand )
-    {
-      result = strtok( NULL, delims );
-      strcpy( &period[0], result );
-    }
-
-    if ( -1 != runCommand(fulldirname, ourCommand, sampleCount, setCount, values, xformations, period) ) {
-        printf("OK\n");
-    }
-
-    return 1;
+  printf("OK\n");
+  return 1;
 }
 
 /************************************************************************************
@@ -1856,15 +1829,13 @@ int waitForInput(char *dir)
  *
  * Written: 13th March 2013 By: Nick Knight
  ************************************************************************************/
-static void sigHandler(int signo)
-{
-    if (signo == SIGINT)
-    {
-        close(STDIN_FILENO);
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
-        exit(0);
-    }
+static void sigHandler(int signo) {
+  if (signo == SIGINT) {
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+    exit(0);
+  }
 }
 
 /************************************************************************************
@@ -1874,8 +1845,7 @@ static void sigHandler(int signo)
  *
  * Written: 9th March 2013 By: Nick Knight
  ************************************************************************************/
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
   char c;
   RRDBCommand ourCommand;
 
@@ -1915,8 +1885,7 @@ int main(int argc, char **argv)
   memset(&filename[0], 0, NAME_MAX);
   memset(&values[0], 0, MAXVALUESTRING);
 
-  if (signal(SIGINT, sigHandler) == SIG_ERR)
-  {
+  if (signal(SIGINT, sigHandler) == SIG_ERR) {
       printf("ERROR: can't catch SIGINT\n");
       exit(1);
   }
@@ -1925,37 +1894,22 @@ int main(int argc, char **argv)
   ourCommand = PIPE;
 
   while ((c = getopt_long(argc, argv, "",
-                            long_options, &option_index)) != -1)
-  {
-    switch (c)
-    {
+                            long_options, &option_index)) != -1) {
+    switch (c) {
       case 0:
-        if ( 0 == strcmp("-", optarg) )
-        {
+        if ( 0 == strcmp("-", optarg) ) {
           ourCommand = PIPE;
-        }
-        else if ( 0 == strcmp("create", optarg) )
-        {
+        } else if ( 0 == strcmp("create", optarg) ) {
           ourCommand = CREATE;
-        }
-        else if ( 0 == strcmp("update", optarg) )
-        {
+        } else if ( 0 == strcmp("update", optarg) ) {
           ourCommand = UPDATE;
-        }
-        else if ( 0 == strcmp("fetch", optarg) )
-        {
+        } else if ( 0 == strcmp("fetch", optarg) ) {
           ourCommand = FETCH;
-        }
-        else if ( 0 == strcmp("info", optarg) )
-        {
+        } else if ( 0 == strcmp("info", optarg) ) {
           ourCommand = INFO;
-        }
-        else if ( 0 == strcmp("touch", optarg) )
-        {
+        } else if ( 0 == strcmp("touch", optarg) ) {
           ourCommand = TOUCH;
-        }
-        else if ( 0 == strcmp("modify", optarg) )
-        {
+        } else if ( 0 == strcmp("modify", optarg) ) {
           ourCommand = MODIFY;
         }
 
@@ -1970,10 +1924,9 @@ int main(int argc, char **argv)
 
       case 3:
         /* directory */
-        if ( strlen(optarg) > PATH_MAX )
-        {
-            printf("ERROR: Length of path too long\n");
-            exit(1);
+        if ( strlen(optarg) > PATH_MAX ) {
+          printf("ERROR: Length of path too long\n");
+          exit(1);
         }
         strcpy( &dir[0], optarg );
 
@@ -1981,20 +1934,18 @@ int main(int argc, char **argv)
 
       case 4:
         /* filename */
-        if ( strlen(optarg) > NAME_MAX )
-        {
-            printf("ERROR: Length of filename too long\n");
-            exit(1);
+        if ( strlen(optarg) > NAME_MAX ) {
+          printf("ERROR: Length of filename too long\n");
+          exit(1);
         }
         strcpy( &filename[0], optarg );
   break;
 
       case 5:
         /* values */
-        if ( strlen(optarg) > MAXVALUESTRING )
-        {
-            printf("ERROR: Length of value string too long\n");
-            exit(1);
+        if ( strlen(optarg) > MAXVALUESTRING ) {
+          printf("ERROR: Length of value string too long\n");
+          exit(1);
         }
 
         strcpy( &values[0], optarg );
@@ -2002,20 +1953,18 @@ int main(int argc, char **argv)
 
       case 6:
         /* xformations */
-        if ( strlen(optarg) > MAXVALUESTRING )
-        {
-            printf("ERROR: Length of xform string too long\n");
-            exit(1);
+        if ( strlen(optarg) > MAXVALUESTRING ) {
+          printf("ERROR: Length of xform string too long\n");
+          exit(1);
         }
         strcpy( &xformations[0], optarg );
         break;
 
       case 7:
         /* touchpath */
-        if ( strlen(optarg) > MAXVALUESTRING )
-        {
-            printf("ERROR: Length of touchpath string too long\n");
-            exit(1);
+        if ( strlen(optarg) > MAXVALUESTRING ) {
+          printf("ERROR: Length of touchpath string too long\n");
+          exit(1);
         }
         strcpy( &xformations[0], optarg );
         break;
@@ -2030,21 +1979,18 @@ int main(int argc, char **argv)
     }
   }
 
-  if ( PIPE == ourCommand )
-  {
+  if ( PIPE == ourCommand ) {
       while(-1 != waitForInput(dir));
-  }
-  else
-  {
-      strcpy(&fulldirname[0], &dir[0]);
-      pathlength = strlen(dir);
-      fulldirname[pathlength] = '/';
-      fulldirname[pathlength+1] = 0;
-      pathlength++;
+  } else {
+    strcpy(&fulldirname[0], &dir[0]);
+    pathlength = strlen(dir);
+    fulldirname[pathlength] = '/';
+    fulldirname[pathlength+1] = 0;
+    pathlength++;
 
-      strcpy(&fulldirname[pathlength], &filename[0]);
+    strcpy(&fulldirname[pathlength], &filename[0]);
 
-      runCommand(fulldirname, ourCommand, sampleCount, setCount, values, xformations, period);
+    runCommand(fulldirname, ourCommand, sampleCount, setCount, values, xformations, period);
 
   }
 

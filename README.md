@@ -29,6 +29,24 @@ or:
 rrdb --command=fetch --dir=/data/rrd --filename=test.rrdb
 1494606092.19696:12
 
+# Building
+
+On Linux, with build tools installed, go into src folder
+
+```bash
+make
+make install
+```
+
+# Docker
+
+There is an image built on Alpine Linux on Docker hub.
+
+## Build
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -t tinpotnick/rrdb:1.1.7 . --push
+```
 
 # Commands
 ## pipe, run the program and wait for input to describe the task with the format
@@ -145,17 +163,3 @@ In pipe mode, these are the equivalent commands
 touch test.rrdb 50 2000 tech,support ONEHOUR,ONEDAY
 touch <filename> <setcount> <samplecount> <path> <period>
 (setcount could also be described as max setcount)
-
-# Building
-
-On Linux, with build tools installed, go into src folder
-make
-make install
-
-# Docker
-
-There is an image built on Alpine Linux on Docker hub.
-
-## Build
-
-docker buildx build --platform linux/amd64,linux/arm64 -t tinpotnick/rrdb:1.1.2 . --push

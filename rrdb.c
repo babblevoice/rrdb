@@ -1572,7 +1572,9 @@ int runCommand(char *filename, RRDBCommand ourCommand, unsigned int sampleCount,
 
     case UPDATE:
       /* we should be given a value for each set we have */
-      return updateRRDBFile( filename, &values[ 0 ] );
+      if( -1 != updateRRDBFile( filename, &values[ 0 ] ) ) printf( "OK\n" );
+      /* update can fail - but just indicate it needs creating - output will havebeen sent though */
+      return 0;
       break;
 
     case MODIFY:
@@ -1724,11 +1726,16 @@ int waitForInput(char *dir) {
     strcpy( &period[0], result );
   }
 
-  if ( -1 == runCommand(fulldirname, ourCommand, sampleCount, setCount, values, xformations, period) ) {
-    return -1;
+  int ret = runCommand(fulldirname, ourCommand, sampleCount, setCount, values, xformations, period);
+  switch( ret ) {
+    case -1:
+      return -1;
+    case 0:
+      break;
+    default:
+      printf( "OK\n" );
   }
-
-  printf("OK\n");
+  
   return 1;
 }
 

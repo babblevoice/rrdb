@@ -1,7 +1,7 @@
 
 # docker build . -t <your username>/projectrtp
 
-FROM alpine:latest as builder
+FROM alpine:3.18 as builder
 
 WORKDIR /usr/src/rrdb
 COPY . .
@@ -11,7 +11,7 @@ RUN apk add --no-cache alpine-sdk; \
     make clean && make && make install
 
 
-FROM alpine:latest as app
+FROM alpine:3.18 as app
 
 #stunnel - removed
 RUN apk add --no-cache ucspi-tcp6 

@@ -3,3 +3,5 @@
 .vscode
 *.o
 rrdb
+*.rrdb
+valgrind.rpt

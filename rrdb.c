@@ -336,7 +336,7 @@ int printRRDBTouchFile(int pfd, char * path, char * period)
     values = ( rrdbInt * ) ( ptr + sizeof( rrdbTouchSet ) );
     for ( j = 0; j < outputsamples; j++ )
     {
-      nowindex = ( ( sampleTime / timepersample ) + 1 ) % header->samplesPerSet;
+      nowindex = ( ( sampleTime / timepersample ) ) % header->samplesPerSet;
 
       value = values[ nowindex ];
       if ( 0 != value )
@@ -1325,8 +1325,8 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
   memset( setHeader->path, 0, sizeof( setHeader->path ) );
   strcpy( setHeader->path, path );
 
-  int nowindesx = ( setHeader->lastTouch / getTimePerSample( period ) ) % samplesPerSet;
-  setdata[ nowindesx ] = 1;
+  int nowindex = ( setHeader->lastTouch / getTimePerSample( period ) ) % samplesPerSet;
+  setdata[ nowindex ] = 1;
 
   munmap( ( char * ) addr, sb.st_size );
 

@@ -1342,7 +1342,7 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
  * a user dials 1 then 2 to navigate through a menu. The jumps in the extensions jump
  * through to extensions mainintro and then sales. The path then becomes mainintro/sales.
  * So we record a hit on the full path and then each sub path. Because we are slightly
- * more dynamic, i.e. the paths may vary - we need teh ability to remove old paths which
+ * more dynamic, i.e. the paths may vary - we need the ability to remove old paths which
  * are no longer used (i.e. the oldest one) if we need a new one.
  *
  * Written: 7th March 2017 By: Nick Knight
@@ -1572,9 +1572,8 @@ int runCommand(char *filename, RRDBCommand ourCommand, unsigned int sampleCount,
 
     case UPDATE:
       /* we should be given a value for each set we have */
-      if( -1 != updateRRDBFile( filename, &values[ 0 ] ) ) printf( "OK\n" );
+      return updateRRDBFile( filename, &values[ 0 ] );
       /* update can fail - but just indicate it needs creating - output will havebeen sent though */
-      return 0;
       break;
 
     case MODIFY:
@@ -1729,7 +1728,7 @@ int waitForInput(char *dir) {
   int ret = runCommand(fulldirname, ourCommand, sampleCount, setCount, values, xformations, period);
   switch( ret ) {
     case -1:
-      return -1;
+      break;
     case 0:
       break;
     default:

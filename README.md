@@ -44,8 +44,10 @@ There is an image built on Alpine Linux on Docker hub.
 
 ## Build
 
+Note: github workflow will build on release. To build test release or manually release:
+
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t tinpotnick/rrdb:1.1.7 . --push
+docker buildx build --platform linux/amd64,linux/arm64 -t tinpotnick/rrdb:<version> . --push
 ```
 
 # Commands

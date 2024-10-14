@@ -75,6 +75,7 @@
  and the time spans are:
 
  FIVEMINUTE
+ QUARTERHOUR
  ONEHOUR
  SIXHOUR
  TWELVEHOUR
@@ -265,6 +266,10 @@ int printRRDBTouchFile(int pfd, char * path, char * period)
   {
     iperiod = FIVEMINUTE;
   }
+  else if ( 0 == strcmp( period, "QUARTERHOUR" ) )
+  {
+    iperiod = QUARTERHOUR;
+  }
   else if ( 0 == strcmp( period, "ONEHOUR" ) )
   {
     iperiod = ONEHOUR;
@@ -454,6 +459,8 @@ int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount
 
     if ( 0 == strcmp("FIVEMINUTE", result)) {
       fileData.xforms[i].period = FIVEMINUTE;
+    } else if ( 0 == strcmp("QUARTERHOUR", result)) {
+      fileData.xforms[i].period = QUARTERHOUR;
     } else if ( 0 == strcmp("ONEHOUR", result)) {
       fileData.xforms[i].period = ONEHOUR;
     } else if ( 0 == strcmp("SIXHOUR", result)) {
@@ -747,6 +754,10 @@ int printRRDBFileInfo(char *filename)
         printf("FIVEMINUTE\n");
         break;
 
+      case QUARTERHOUR:
+        printf("QUARTERHOUR\n");
+        break;
+
       case ONEHOUR:
         printf("ONEHOUR\n");
         break;
@@ -968,6 +979,14 @@ int updateRRDBFile(char *filename, char* vals) {
         xformstart.tv_usec = 0;
         break;
 
+      case QUARTERHOUR:
+        current_tm->tm_sec = 0;
+        current_tm->tm_min = ((int)(current_tm->tm_min/15))*15;;
+
+        xformstart.tv_sec = mktime(current_tm);
+        xformstart.tv_usec = 0;
+        break;
+
       case ONEHOUR:
         current_tm->tm_sec = 0;
         current_tm->tm_min = 0;
@@ -1128,6 +1147,10 @@ unsigned int getTimePerSample(unsigned int period)
   {
     case FIVEMINUTE:
       return 60 * 5;
+      break;
+
+    case QUARTERHOUR:
+      return 60 * 15;
       break;
 
     case ONEHOUR:
@@ -1431,6 +1454,8 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
     while( NULL != perioditem ) {
       if ( 0 == strcmp( perioditem, "FIVEMINUTE" ) ) {
         iperiod = FIVEMINUTE;
+      } else if ( 0 == strcmp( perioditem, "QUARTERHOUR" ) ) {
+        iperiod = QUARTERHOUR;
       } else if ( 0 == strcmp( perioditem, "ONEHOUR" ) ) {
         iperiod = ONEHOUR;
       } else if ( 0 == strcmp( perioditem, "SIXHOUR" ) ) {

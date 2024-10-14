@@ -16,6 +16,7 @@ xforms = xforms + "RRDBMEAN:FIVEMINUTE:0:"
 xforms = xforms + "RRDBMEAN:ONEDAY:0:"
 xforms = xforms + "RRDBMEAN:FIVEMINUTE:1:"
 xforms = xforms + "RRDBMEAN:ONEDAY:1"
+xforms = xforms + "RRDBMAX:QUARTERHOUR:0"
 os.system( "./rrdb --command=create --dir=./ --filename=test.rrdb --setcount=2 --samplecount=500 --xform=" + xforms )
 
 totalsum = 0
@@ -80,6 +81,12 @@ readoutput = os.popen( "./rrdb --command=fetch --dir=./ --filename=test.rrdb --x
 meanval = float( timevalue.search( readoutput ).group( 2 ).strip() )
 
 print( "Xform 7 read a mean of {meanval}, expecting {ourcalcmean} ({totalsum}/{totalcount})".format( meanval=meanval, ourcalcmean=(secondtotalsum/totalcount), totalsum=secondtotalsum, totalcount=totalcount ) )
+
+# Check xform 8 - RRDBMAX:QUARTERHOUR:0
+readoutput = os.popen( "./rrdb --command=fetch --dir=./ --filename=test.rrdb --xform=8" ).read()
+firstmax = float( timevalue.search( readoutput ).group( 2 ).strip() )
+
+print( "Xform 8 - read a max of {max}, expecting {ourmax}".format( max=firstmax, ourmax=ourmax ) )
 
 print( "Will sleep for 5 minutes to ensure windowing is correct" )
 time.sleep( 60 * 5 )

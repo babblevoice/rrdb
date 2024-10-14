@@ -76,7 +76,7 @@ typedef struct rrdbTimePoint {
     rrdbValid valid;
 } rrdbTimePoint;
 
-typedef enum {FIVEMINUTE = 0, ONEHOUR = 1, SIXHOUR = 2, TWELVEHOUR = 3, ONEDAY = 4} RRDBTimePeriods;
+typedef enum {FIVEMINUTE = 0, ONEHOUR = 1, SIXHOUR = 2, TWELVEHOUR = 3, ONEDAY = 4, QUARTERHOUR = 5} RRDBTimePeriods;
 typedef enum {RRDBMAX = 0, RRDBMIN = 1, RRDBCOUNT = 2, RRDBMEAN = 3, RRDBSUM = 4} RRDBCalculation;
 
 typedef struct rrdbTouchHeader {

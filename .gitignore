@@ -5,3 +5,6 @@
 rrdb
 *.rrdb
 valgrind.rpt
+
+node_modules
+

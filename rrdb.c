@@ -18,6 +18,8 @@
 #include <errno.h>
 #include <sys/mman.h>
 
+#include <inttypes.h>
+
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
@@ -215,146 +217,92 @@ int freeRRDBFile(rrdbFile *fileData)
  ************************************************************************************/
 int printRRDBFile(rrdbFile *fileData)
 {
-    unsigned int i,j;
-    unsigned int windowPos = 0;
+  unsigned int i,j;
+  unsigned int windowPos = 0;
 
-    for ( i = 0 ; i < fileData->header.sampleCount; i++ )
+  for ( i = 0 ; i < fileData->header.sampleCount; i++ )
+  {
+    /* + 1 so that we loop back round to the start and print them in time order */
+    windowPos = (i + fileData->header.windowPosition + 1)%fileData->header.sampleCount;
+
+    if ( 1 == fileData->times[windowPos].valid )
     {
-        /* + 1 so that we loop back round to the start and print them in time order */
-        windowPos = (i + fileData->header.windowPosition + 1)%fileData->header.sampleCount;
-
-        if ( 1 == fileData->times[windowPos].valid )
-        {
-            printf("%ld.%i", fileData->times[windowPos].time, fileData->times[windowPos].uSecs);
-            for ( j = 0 ; j < fileData->header.setCount; j++ )
-            {
-                printf(":%Lf", fileData->sets[j][windowPos]);
-            }
-            printf("\n");
-        }
+      printf("%ld.%i", fileData->times[windowPos].time, fileData->times[windowPos].uSecs);
+      for ( j = 0 ; j < fileData->header.setCount; j++ )
+      {
+        printf(":%Lf", fileData->sets[j][windowPos]);
+      }
+      printf("\n");
     }
+  }
 
-    return 1;
+  return 1;
 }
 
-/************************************************************************************
- * Function: printRRDBTouchFile
- *
- * Purpose: Output the data formated.
- *
- * Written: 19th April 2017 By: Nick Knight
- ************************************************************************************/
-int printRRDBTouchFile(int pfd, char * path, char * period)
+static void print_set(const rrdbTouchHeader *header,
+                      const rrdbTouchSet *setHeader,
+                      const rrdbInt *values)
 {
-  char *addr, *ptr;
+  const unsigned int N = header->samplesPerSet;
+  const time_t tps = (time_t)getTimePerSample(setHeader->period);
+
+  // Anchor window to the last write
+  const time_t last_tick = setHeader->lastTouch / tps;  // tick we last touched
+  time_t end_tick  = last_tick;                         // print up to here
+  time_t start_tick = end_tick - (time_t)(N - 1);
+  if (start_tick < 0) start_tick = 0;
+
+  for (time_t tick = end_tick; ; --tick) {
+    unsigned int idx = (unsigned int)(tick % N);
+    rrdbInt v = values[idx];
+    // label with START of bin
+    intmax_t ts = (intmax_t)(tick * tps);
+    if (v != 0) printf("%" PRIdMAX ":%d\n", ts, (int)v);
+    if (tick == start_tick) break;
+  }
+}
+
+int printRRDBTouchFile(int pfd, char *path, char *period)
+{
   struct stat sb;
-  rrdbInt *values, value;
+  if (fstat(pfd, &sb) == -1) return -1;
+
   unsigned int iperiod;
+  if( strcmp( period, "FIVEMINUTE")  == 0 ) iperiod = FIVEMINUTE;
+  else if( strcmp( period, "QUARTERHOUR" ) == 0 ) iperiod = QUARTERHOUR;
+  else if( strcmp( period, "ONEHOUR" ) == 0 ) iperiod = ONEHOUR;
+  else if( strcmp( period, "SIXHOUR" ) == 0 ) iperiod = SIXHOUR;
+  else if( strcmp( period, "TWELVEHOUR" ) == 0 ) iperiod = TWELVEHOUR;
+  else if( strcmp( period, "ONEDAY" ) == 0 ) iperiod = ONEDAY;
+  else iperiod = ONEHOUR;
 
-  rrdbTouchHeader *header;
-  rrdbTouchSet *setHeader;
-  unsigned int i,j, timepersample, missingsamples, outputsamples, nowindex;
-  rrdbTimeEpochSeconds sampleTime;
-  time_t now, missing;
+  char *addr = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, pfd, 0);
+  if( addr == MAP_FAILED ) return -1;
 
-  if ( fstat( pfd, &sb ) == -1 )           /* To obtain file size */
-  {
-    return -1;
-  }
+  rrdbTouchHeader *header = (rrdbTouchHeader *)addr;
+  char *ptr = addr + sizeof(rrdbTouchHeader);
 
-  if ( 0 == strcmp( period, "FIVEMINUTE" ) )
-  {
-    iperiod = FIVEMINUTE;
-  }
-  else if ( 0 == strcmp( period, "QUARTERHOUR" ) )
-  {
-    iperiod = QUARTERHOUR;
-  }
-  else if ( 0 == strcmp( period, "ONEHOUR" ) )
-  {
-    iperiod = ONEHOUR;
-  }
-  else if ( 0 == strcmp( period, "SIXHOUR" ) )
-  {
-    iperiod = SIXHOUR;
-  }
-  else if ( 0 == strcmp( period, "TWELVEHOUR" ) )
-  {
-    iperiod = TWELVEHOUR;
-  }
-  else if ( 0 == strcmp( period, "ONEDAY" ) )
-  {
-    iperiod = ONEDAY;
-  }
-  else
-  {
-    iperiod = ONEHOUR;
-  }
+  for( unsigned int i = 0; i < header->sets; i++ ) {
+    rrdbTouchSet *setHeader = (rrdbTouchSet *)ptr;
 
-  addr = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, pfd, 0);
-
-  if (addr == MAP_FAILED)
-  {
-    return -1;
-  }
-
-  header = ( rrdbTouchHeader * ) addr;
-  ptr = addr + sizeof( rrdbTouchHeader );
-
-  for ( i = 0 ; i < header->sets; i++ )
-  {
-    setHeader = ( rrdbTouchSet * ) ptr;
-
-    if ( 0 != path[ 0 ] && 0 != strcmp( setHeader->path, path ) )
-    {
-      ptr += sizeof( rrdbTouchSet ) + ( header->samplesPerSet * sizeof( rrdbInt ) );
+    // optional path filter
+    if( path && path[0] != '\0' && strcmp( setHeader->path, path ) != 0 ) {
+      ptr += sizeof(rrdbTouchSet) + header->samplesPerSet * sizeof( rrdbInt );
       continue;
     }
 
-    if ( setHeader->period != iperiod )
-    {
-      ptr += sizeof( rrdbTouchSet ) + ( header->samplesPerSet * sizeof( rrdbInt ) );
+    // period filter
+    if (setHeader->period != iperiod) {
+      ptr += sizeof(rrdbTouchSet) + header->samplesPerSet * sizeof(rrdbInt);
       continue;
     }
 
-    timepersample = getTimePerSample( setHeader->period );
-    //printf( "H:%s:%i\n", setHeader->path, timepersample );
-
-    /* Round it up to the nearest time block */
-    sampleTime = setHeader->lastTouch / timepersample;
-    sampleTime = ( sampleTime * timepersample ) + timepersample;
-
-    now = time( NULL ) / timepersample;
-    now = ( now * timepersample ) + timepersample;
-
-    missing = now - sampleTime;
-    missingsamples = missing / timepersample;
-
-    if ( missingsamples >= header->samplesPerSet )
-    {
-      outputsamples = 0;
-    }
-    else
-    {
-      outputsamples = header->samplesPerSet - missingsamples;
-    }
-    values = ( rrdbInt * ) ( ptr + sizeof( rrdbTouchSet ) );
-    for ( j = 0; j < outputsamples; j++ )
-    {
-      nowindex = ( ( sampleTime / timepersample ) ) % header->samplesPerSet;
-
-      value = values[ nowindex ];
-      if ( 0 != value )
-      {
-        printf("%ld:%i\n", sampleTime, values[ nowindex ] );
-      }
-      sampleTime -= timepersample;
-    }
-    break;
+    rrdbInt *values = (rrdbInt *)(ptr + sizeof(rrdbTouchSet));
+    print_set(header, setHeader, values);
+    break; // print only first matching set
   }
 
   munmap( addr, sb.st_size );
-
   return 0;
 }
 
@@ -389,7 +337,7 @@ int printRRDBFileXform(rrdbFile *fileData, unsigned int index)
 }
 
 /**
- * Initialize a file with zeroed out data. Locks the file. This function 
+ * Initialize a file with zeroed out data. Locks the file. This function
  * must not output error as this is the job of the caller.
  * Written: 9th March 2013 By: Nick Knight
  * @returns { int } - an open file or -1 on failure.
@@ -854,7 +802,7 @@ int modifyRRDBFile(char *filename, char* vals, char* xform) {
         goto finishmodify;
       }
     }
-    
+
     freeRRDBFile(&fileData);
     unlockandclose( pfd );
     return -1;
@@ -1183,52 +1131,51 @@ unsigned int getTimePerSample(unsigned int period)
  *
  * Written: 8th April 2017 By: Nick Knight
  ************************************************************************************/
-int touchSet( rrdbTouchHeader *header, rrdbTouchSet *setHeader, rrdbInt *setdata)
+int touchSet(rrdbTouchHeader *header, rrdbTouchSet *setHeader, rrdbInt *setdata)
 {
-  time_t timePerSample = getTimePerSample( setHeader->period );
+    const time_t tps       = getTimePerSample(setHeader->period);
+    const time_t now       = time(NULL);
+    const time_t now_tick  = now / tps;
+    const time_t last_tick = setHeader->lastTouch / tps;
 
-  /* Work out how many samples we need to clear out. */
-  time_t now = time(NULL);
+    const unsigned int N = header->samplesPerSet;
 
-  unsigned int nowindex = ( now / timePerSample ) % header->samplesPerSet;
-  unsigned int lastindex = ( setHeader->lastTouch / timePerSample ) % header->samplesPerSet;
-  unsigned int numtoclear = ( now / timePerSample ) - ( setHeader->lastTouch / timePerSample );
-
-  if ( numtoclear > 1 )
-  {
-    /*
-     numtoclear actually starts out as the distance between to
-     2 samples. The numtoclear is the space between the 2.
-    */
-    numtoclear = numtoclear - 1;
-    if ( numtoclear > header->samplesPerSet )
-    {
-      /* Clear the set */
-      /* We need some zeros */
-      memset( setdata, 0, header->samplesPerSet * sizeof(rrdbInt) );
+    // Same or clock went backwards: just bump current computed index
+    if (now_tick <= last_tick) {
+        unsigned int nowindex = (unsigned int)(now_tick % N);
+        setdata[nowindex]++;
+        setHeader->lastTouch = now;
+        return 1;
     }
-    else if ( nowindex > lastindex )
-    {
-      /*
-        Our valid data range is  within a continuous range. We have
-        to clear eather side (2 blocks) of data.
-      */
-      memset( setdata, 0, nowindex * sizeof(rrdbInt) );
-      memset( setdata + lastindex + 1, 0, ( header->samplesPerSet - lastindex - 1 ) * sizeof(rrdbInt) );
-    }
-    else
-    {
-      /*
-        Our valid data range is within a continuous range. We have
-        one contiguous block of data to clear out.
-      */
-      memset( setdata + lastindex + 1, 0, numtoclear * sizeof(rrdbInt) );
-    }
-  }
 
-  /* Now update the set */
-  setdata[ nowindex ]++;
-  return 1;
+    unsigned int nowindex  = (unsigned int)(now_tick  % N);
+    unsigned int lastindex = (unsigned int)(last_tick % N);
+    time_t diff = now_tick - last_tick;
+
+    if (diff >= (time_t)N) {
+        // advanced by a full ring or more: everything is stale
+        memset(setdata, 0, N * sizeof(rrdbInt));
+    } else if (diff > 1) {
+        // clear bins strictly between last and now
+        if (nowindex > lastindex) {
+            // contiguous region
+            size_t span = (size_t)(diff - 1);
+            memset(setdata + lastindex + 1, 0, span * sizeof(rrdbInt));
+        } else {
+            // wrapped: tail and head
+            size_t tail = N - (lastindex + 1);
+            size_t head = nowindex;
+            if (tail) memset(setdata + lastindex + 1, 0, tail * sizeof(rrdbInt));
+            if (head) memset(setdata, 0, head * sizeof(rrdbInt));
+        }
+    }
+    // Important: we are in a new bin; zero it so we don't carry old value
+    setdata[nowindex] = 0;
+
+    // Now record this touch
+    setdata[nowindex]++;           // or += count if you have a batch value
+    setHeader->lastTouch = now;
+    return 1;
 }
 
 /************************************************************************************
@@ -1293,8 +1240,6 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
     {
       goto continueloop;
     }
-
-    setHeader->lastTouch = time( NULL );
 
     retval = touchSet( header, setHeader, ( rrdbInt * ) ( setHeader + 1 ) );
     munmap( ( char * ) addr, sb.st_size );
@@ -1759,7 +1704,7 @@ int waitForInput(char *dir) {
     default:
       printf( "OK\n" );
   }
-  
+
   return 1;
 }
 

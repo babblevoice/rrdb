@@ -31,11 +31,34 @@ rrdb --command=fetch --dir=/data/rrd --filename=test.rrdb
 
 # Building
 
-On Linux, with build tools installed, go into src folder
+All done within docker
+
+NB: a docker build can be useful with --no-cache as caching can be a little aggresive.
 
 ```bash
-make
-make install
+
+# Build the normal runtime image
+docker build -t rrdb:app --target app .
+
+# Build the dev image (with Node, Mocha, faketime)
+docker build -t rrdb:dev --target dev .
+
+# If you want a newer Alpine:
+docker build -t rrdb:dev --target dev --build-arg ALPINE_VERSION=3.21 .
+
+```
+
+# Test
+
+NB: if selinux is running - it might need to be disabled as docker needs access to the pwd: sudo setenforce 0
+
+```bash
+# if you intend to run multiple times whilst playing with source
+docker run -it --rm -v "$PWD":/workspace rrdb:dev sh
+
+# or
+docker run -it --rm -v "$PWD":/workspace rrdb:dev npm test
+
 ```
 
 # Docker

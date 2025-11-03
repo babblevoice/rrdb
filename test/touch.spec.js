@@ -580,4 +580,257 @@ describe("rrdb touch", function () {
 
     expect( stdout.trim() ).to.equal( expected )
   } )
+
+
+  it( "rrdb more fill samples QUARTERHOUR", async function () {
+
+    const env = {
+      ...process.env,
+      FAKETIME: "@2025-10-31 12:00:00",
+      LD_PRELOAD: "/usr/lib/faketime/libfaketime.so.1"
+    }
+
+    const fn = genfilename()
+
+    const touchflags = [
+      "--command=touch",
+      "--dir=/tmp/",
+      "--filename=" + fn,
+      "--touchpath=test",
+      "--samplecount=10",
+      "--setcount=1",
+      "--period=QUARTERHOUR"
+    ]
+
+
+    const fetchflags = [
+      "--command=fetch",
+      "--dir=/tmp/",
+      "--filename=" + fn,
+      "--period=QUARTERHOUR",
+      "--touchpath=test"
+    ]
+
+    await execFileAsync( rrbdbin, touchflags, { env } )
+    await execFileAsync( rrbdbin, touchflags, { env } )
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 12:15:00"
+
+    await execFileAsync( rrbdbin, touchflags, { env } )
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 12:30:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 12:45:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 13:00:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 13:15:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 13:30:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 13:45:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 14:00:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 14:15:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    const { stdout } = await execFileAsync( rrbdbin, fetchflags, { env } )
+
+    const expected = [
+      "1761920100:1",
+      "1761919200:1",
+      "1761918300:1",
+      "1761917400:1",
+      "1761916500:1",
+      "1761915600:1",
+      "1761914700:1",
+      "1761913800:1",
+      "1761912900:2",
+      "1761912000:3"
+    ].join("\n")
+
+    expect( stdout.trim() ).to.equal( expected )
+  } )
+
+
+  it( "rrdb more fill samples QUARTERHOUR with wrap", async function () {
+
+    const env = {
+      ...process.env,
+      FAKETIME: "@2025-10-31 12:00:00",
+      LD_PRELOAD: "/usr/lib/faketime/libfaketime.so.1"
+    }
+
+    const fn = genfilename()
+
+    const touchflags = [
+      "--command=touch",
+      "--dir=/tmp/",
+      "--filename=" + fn,
+      "--touchpath=test",
+      "--samplecount=10",
+      "--setcount=1",
+      "--period=QUARTERHOUR"
+    ]
+
+
+    const fetchflags = [
+      "--command=fetch",
+      "--dir=/tmp/",
+      "--filename=" + fn,
+      "--period=QUARTERHOUR",
+      "--touchpath=test"
+    ]
+
+    await execFileAsync( rrbdbin, touchflags, { env } )
+    await execFileAsync( rrbdbin, touchflags, { env } )
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 12:15:00"
+
+    await execFileAsync( rrbdbin, touchflags, { env } )
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 12:30:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 12:45:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 13:00:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 13:15:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 13:30:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 13:45:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 14:00:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 14:15:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 14:30:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+    await execFileAsync( rrbdbin, touchflags, { env } )
+    await execFileAsync( rrbdbin, touchflags, { env } )
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 14:45:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    const { stdout } = await execFileAsync( rrbdbin, fetchflags, { env } )
+
+    const expected = [
+      "1761921900:1",
+      "1761921000:4",
+      "1761920100:1",
+      "1761919200:1",
+      "1761918300:1",
+      "1761917400:1",
+      "1761916500:1",
+      "1761915600:1",
+      "1761914700:1",
+      "1761913800:1"
+    ].join("\n")
+
+    expect( stdout.trim() ).to.equal( expected )
+  } )
+
+
+
+  it( "rrdb more fill samples 1 HOUR", async function () {
+
+    const env = {
+      ...process.env,
+      FAKETIME: "@2025-10-31 12:00:00",
+      LD_PRELOAD: "/usr/lib/faketime/libfaketime.so.1"
+    }
+
+    const fn = genfilename()
+
+    const touchflags = [
+      "--command=touch",
+      "--dir=/tmp/",
+      "--filename=" + fn,
+      "--touchpath=test",
+      "--samplecount=10",
+      "--setcount=1",
+      "--period=ONEHOUR"
+    ]
+
+
+    const fetchflags = [
+      "--command=fetch",
+      "--dir=/tmp/",
+      "--filename=" + fn,
+      "--period=ONEHOUR",
+      "--touchpath=test"
+    ]
+
+    await execFileAsync( rrbdbin, touchflags, { env } )
+    await execFileAsync( rrbdbin, touchflags, { env } )
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 13:00:00"
+
+    await execFileAsync( rrbdbin, touchflags, { env } )
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 14:00:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 15:00:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 16:00:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 17:00:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 18:00:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 19:00:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 20:00:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    env[ "FAKETIME" ] = "@2025-10-31 21:00:00"
+    await execFileAsync( rrbdbin, touchflags, { env } )
+
+    const { stdout } = await execFileAsync( rrbdbin, fetchflags, { env } )
+
+    const expected = [
+      "1761944400:1",
+      "1761940800:1",
+      "1761937200:1",
+      "1761933600:1",
+      "1761930000:1",
+      "1761926400:1",
+      "1761922800:1",
+      "1761919200:1",
+      "1761915600:2",
+      "1761912000:3"
+    ].join("\n")
+
+    expect( stdout.trim() ).to.equal( expected )
+  } )
 } )

@@ -133,12 +133,18 @@ typedef struct rrdbFile {
 
 } rrdbFile;
 
-/* file helpers */
-int createopenandlock( char *filename );
-int readwriteopenandlock( char *filename );
-int unlockandclose( int pfd );
+typedef struct {
+    int data_fd;
+    int lock_fd;
+} locked_file_t;
 
-int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount , char *xformations);
+/* file helpers */
+locked_file_t createopenandlock( char *filename );
+locked_file_t readwriteopenandlock( char *filename );
+locked_file_t readopenandlock( char *  filename );
+locked_file_t unlockandclose( locked_file_t pfd );
+
+locked_file_t initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount , char *xformations);
 int readRRDBFile(int pfd, rrdbFile *fileData); /* RRDB V1 */
 int writeRRDBFile(int pfd, rrdbFile *fileData);
 int updateRRDBFile(char *filename, char* vals);

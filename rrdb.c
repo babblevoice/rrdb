@@ -20,6 +20,8 @@
 
 #include <inttypes.h>
 
+#include <sys/file.h>
+
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
@@ -123,59 +125,132 @@
  */
 
 
+ static int buildlockpath( const char *path, char *out, size_t outlen ) {
+    size_t len = strlen(path);
+
+    if (len + 5 >= outlen)  /* ".lock" + NUL */
+        return -1;
+
+    memcpy(out, path, len);
+    memcpy(out + len, ".lock", 6); /* includes NUL */
+    return 0;
+}
+
+static int lockacquire( const char *path, int lock_mode ) {
+  char lockpath[PATH_MAX];
+
+  if (buildlockpath(path, lockpath, sizeof(lockpath)) < 0)
+    return -1;
+
+  int fd = open(lockpath, O_CREAT | O_RDWR, 0644);
+  if (fd < 0)
+    return -1;
+
+  if( flock(fd, lock_mode) < 0 ) {
+      close(fd);
+      return -1;
+  }
+
+  /* Optional debug info */
+  if (ftruncate(fd, 0) == 0) {
+      dprintf(fd, "pid=%ld time=%ld\n",
+              (long)getpid(), (long)time(NULL));
+      fsync(fd);
+  }
+
+  return fd;
+}
+
+static int lockrelease( int lockfd ) {
+  if( lockfd < 0 )
+    return -1;
+
+  /* flock unlock is optional; close() releases it anyway */
+  if ( flock( lockfd, LOCK_UN ) < 0 )
+    return -1;
+
+  return close( lockfd );
+}
+
+
+
 /**
  * @return { int } open file id or -1 on failure.
 */
-int createopenandlock( char *filename ) {
+locked_file_t createopenandlock( char *filename ) {
 
-  int pfd = -1;
-  if ( ( pfd = open( filename, O_CREAT | O_RDWR , S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH ) ) == -1 ) {
+  locked_file_t lf = { .data_fd = -1, .lock_fd = -1 };
+
+  lf.lock_fd = lockacquire( filename, LOCK_EX );
+
+  if( -1 == lf.lock_fd ) {
+    fprintf( stderr, "failed to lock file '%s'\n", filename );
+    return lf;
+  }
+
+  lf.data_fd = open( filename, O_CREAT | O_RDWR , S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH );
+  if ( -1 == lf.data_fd ) {
+    lockrelease( lf.lock_fd );
+    lf.lock_fd = -1;
+
     fprintf( stderr, "failed to open file '%s' for writing\n", filename );
-    return -1;
   }
 
-  if ( -1 == lockf( pfd, F_LOCK, 1 ) ) {
-    close( pfd );
-    fprintf( stderr, "error obtaining lock on file\n" );
-    return -1;
-  }
-
-  return pfd;
+  return lf;
 }
 
 /**
- * We have to be writable to gain a lock - so even when read only use this.
- * @return { int } 1 on success or -1 on failure
+ * We have to be writable to gain a lock.
+ * @return { locked_file_t } .data_fd -1 on failure
 */
-int readwriteopenandlock( char *  filename ) {
-  int pfd;
-  if( ( pfd = open( filename, O_RDWR ) ) == -1) {
+locked_file_t readwriteopenandlock( char *  filename ) {
+
+  locked_file_t lf = { .data_fd = -1, .lock_fd = -1 };
+  lf.lock_fd = lockacquire( filename, LOCK_EX );
+
+  lf.data_fd = open( filename, O_RDWR );
+
+  if( -1 == lf.data_fd ) {
+    lockrelease( lf.lock_fd );
+    lf.lock_fd = -1;
     fprintf( stderr, "failed to read rrdb file '%s'\n", filename );
-    return -1;
   }
 
-  /* Lock */
-  if( 0 != lockf( pfd, F_LOCK, 1 ) ) {
-    close( pfd );
-    fprintf( stderr, "failed to acquire lock read for rrdb file '%s'\n", filename );
-    return -1;
+  return lf;
+}
+
+/**
+ * Open for read and get a read lock.
+ * @return { locked_file_t } .data_fd -1 on failure
+ */
+locked_file_t readopenandlock( char *  filename ) {
+
+  locked_file_t lf = { .data_fd = -1, .lock_fd = -1 };
+  lf.lock_fd = lockacquire( filename, LOCK_SH );
+
+  lf.data_fd = open( filename, O_RDONLY );
+
+  if( -1 == lf.data_fd ) {
+    lockrelease( lf.lock_fd );
+    lf.lock_fd = -1;
+    fprintf( stderr, "failed to read rrdb file '%s'\n", filename );
   }
-  return pfd;
+
+  return lf;
 }
 
 /**
  * If unlocking fails we still try to close the file.
- * @return { int } 1 on success -1 on failure
+ * @return { locked_file_t } .data_fd -1 on failure
 */
-int unlockandclose( int pfd ) {
-  int retval = 1;
-  lseek( pfd, 0, SEEK_SET );
-  if( 0 != lockf( pfd, F_ULOCK, 1 ) ) {
-    fprintf( stderr, "Failed to unlock file\n" );
-    retval = -1;
-  }
-  close( pfd );
-  return retval;
+locked_file_t unlockandclose( locked_file_t lf ) {
+
+  close( lf.data_fd );
+  lockrelease( lf.lock_fd );
+
+  lf.data_fd = -1;
+  lf.lock_fd = -1;
+  return lf;
 }
 
 /************************************************************************************
@@ -342,11 +417,15 @@ int printRRDBFileXform(rrdbFile *fileData, unsigned int index)
  * Written: 9th March 2013 By: Nick Knight
  * @returns { int } - an open file or -1 on failure.
  */
-int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount , char *xformations) {
-  int pfd;
+locked_file_t initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount , char *xformations) {
+
+  locked_file_t pfd;
   rrdbFile fileData;
   long long totalSizeRequired;
   unsigned int setCountSize;
+
+  pfd = createopenandlock( filename );
+  if( -1 == pfd.data_fd ) return pfd;
 
   char *result = NULL;
   const char delims[] = ":";
@@ -402,7 +481,8 @@ int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount
     result = strtok( NULL, delims );
     if ( NULL == result ) {
       fprintf( stderr, "Failed to get timespan\n" );
-      return -1;
+      unlockandclose( pfd );
+      return pfd;
     }
 
     if ( 0 == strcmp("FIVEMINUTE", result)) {
@@ -426,7 +506,8 @@ int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount
       result = strtok( NULL, delims );
       if ( NULL == result ) {
         fprintf( stderr, "We really need an index for the xform\n" );
-        return -1;
+        unlockandclose( pfd );
+        return pfd;
       }
       fileData.xforms[i].setIndex = atoi(result);
     }
@@ -444,13 +525,8 @@ int initRRDBFile(char *filename, unsigned int setCount, unsigned int sampleCount
     result = strtok( NULL, delims );
   }
 
-
-  pfd = createopenandlock( filename );
-  if( -1 == pfd ) return -1;
-
-  if ( -1 == writeRRDBFile( pfd, &fileData ) ) {
+  if ( -1 == writeRRDBFile( pfd.data_fd, &fileData ) ) {
     unlockandclose( pfd );
-    pfd = -1;
   }
   freeRRDBFile(&fileData);
 
@@ -615,27 +691,27 @@ int printRRDBFileInfo(char *filename)
 {
   rrdbFile fileData;
   unsigned int i;
-  int pfd;
+  locked_file_t pfd = readopenandlock( filename );
 
-  if( ( pfd = readwriteopenandlock( filename ) ) == -1 ) {
+  if( -1 == pfd.data_fd ) {
     printf("ERROR: failed to open %s\n", filename);
     return -1;
   }
 
-  if ( RRDBTOUCHV2 == getFileVersion( pfd ) ) {
+  if ( RRDBTOUCHV2 == getFileVersion( pfd.data_fd ) ) {
     rrdbTouchHeader *ourtouchheader;
     rrdbTouchSet *setHeader;
     struct stat sb;
     char *addr, *ptr;
     unsigned int loopcount;
 
-    if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
+    if ( fstat( pfd.data_fd, &sb ) == -1 ) { /* To obtain file size */
       printf("ERROR: cannot stat RRDB file\n");
       unlockandclose( pfd );
       return -1;
     }
 
-    addr = mmap(NULL, sb.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, pfd, 0);
+    addr = mmap(NULL, sb.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, pfd.data_fd, 0);
     if (addr == MAP_FAILED) {
       printf("ERROR: error accessing data file.\n");
       unlockandclose( pfd );
@@ -660,7 +736,7 @@ int printRRDBFileInfo(char *filename)
     return 1;
   }
 
-  if( -1 == readRRDBFile(pfd, &fileData) ) {
+  if( -1 == readRRDBFile(pfd.data_fd, &fileData) ) {
     unlockandclose( pfd );
     return -1;
   }
@@ -738,22 +814,23 @@ int printRRDBFileInfo(char *filename)
  * Written: 22nd June 2021 By: Nick Knight
  ************************************************************************************/
 int modifyRRDBFile(char *filename, char* vals, char* xform) {
+
   rrdbFile fileData;
   int ixform;
-  int pfd;
 
-  if ( ( pfd = readwriteopenandlock( filename ) ) == -1 ) {
+  locked_file_t pfd = readwriteopenandlock( filename );
+  if ( -1 == pfd.data_fd ) {
     printf( "ERROR: failed to open %s\n", filename );
     return -1;
   }
 
-  if ( RRDBTOUCHV2 == getFileVersion( pfd ) ) {
+  if ( RRDBTOUCHV2 == getFileVersion( pfd.data_fd ) ) {
     printf("Unsupported version V2\n");
     unlockandclose( pfd );
     return -1;
   }
 
-  if( -1 == readRRDBFile(pfd, &fileData) ) {
+  if( -1 == readRRDBFile(pfd.data_fd, &fileData) ) {
     unlockandclose( pfd );
     return -1;
   }
@@ -826,7 +903,7 @@ int modifyRRDBFile(char *filename, char* vals, char* xform) {
 
 finishmodify:
 
-  if ( -1 == writeRRDBFile(pfd, &fileData) )
+  if ( -1 == writeRRDBFile(pfd.data_fd, &fileData) )
     fprintf( stderr, "Could not write data to RRDB file\n");
 
 finishnomodify:
@@ -860,11 +937,11 @@ int updateRRDBFile(char *filename, char* vals) {
   struct tm *current_tm;
   time_t current_time;
 
-  int pfd;
-
   xformstart = (struct timeval){0};
 
-  if( ( pfd = readwriteopenandlock( filename ) ) == -1 ) {
+  locked_file_t pfd = readwriteopenandlock( filename );
+
+  if( -1 == pfd.data_fd ) {
     printf("ERROR: failed to open %s for O_RDWR\n", filename);
     return -1;
   }
@@ -873,7 +950,7 @@ int updateRRDBFile(char *filename, char* vals) {
     read in the header to get the window position and make
     sure the set count is correct
     */
-  if( -1 == readRRDBFile(pfd, &fileData) ) {
+  if( -1 == readRRDBFile(pfd.data_fd, &fileData) ) {
     unlockandclose( pfd );
     return -1;
   }
@@ -1054,7 +1131,7 @@ int updateRRDBFile(char *filename, char* vals) {
 
   /* Now write it */
   int retval = 1;
-  if ( -1 == writeRRDBFile(pfd, &fileData) ) retval = -1;
+  if ( -1 == writeRRDBFile(pfd.data_fd, &fileData) ) retval = -1;
   freeRRDBFile(&fileData);
   unlockandclose( pfd );
   return retval;
@@ -1317,7 +1394,6 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
  ************************************************************************************/
 int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxsets, unsigned int sampleCount)
 {
-  int pfd;
   unsigned int iperiod = 0;
   char *pathitem, *perioditem;
   char *pathitem_save_ptr, *perioditem_save_ptr;
@@ -1339,32 +1415,29 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
     sampleCount = TOUCHDEFAULTSAMPLECOUNT;
   }
 
-  if ( ( pfd = createopenandlock( filename ) ) == -1 ) {
+  locked_file_t pfd = createopenandlock( filename );
+  if ( -1 == pfd.data_fd ) {
     /* failure - should only ouput one error - perhaps need to put this somewhere else?*/
     printf( "ERROR: failed to open %s\n", filename );
     return -1;
   }
 
-  if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
+  if ( fstat( pfd.data_fd, &sb ) == -1 ) { /* To obtain file size */
     unlockandclose( pfd );
     printf("ERROR: Couldn't stat RRDB file(1)\n");
     return -1;
   }
 
   if ( 0 == sb.st_size ) {
-    posix_fallocate( pfd, 0, sizeof(rrdbTouchHeader) );
+    posix_fallocate( pfd.data_fd, 0, sizeof(rrdbTouchHeader) );
 
-    if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
-      lseek(pfd, 0, SEEK_SET);
-      if( 0 != lockf(pfd, F_ULOCK, 1) ) {
-        fprintf( stderr, "Failed to unlock file\n" );
-      }
-      close(pfd);
+    if ( fstat( pfd.data_fd, &sb ) == -1 ) { /* To obtain file size */
+      unlockandclose( pfd );
       printf("ERROR: Couldn't stat RRDB file(2)\n");
       return -1;
     }
 
-    headerData = ( rrdbTouchHeader * ) mmap(NULL, sizeof(rrdbTouchHeader), PROT_WRITE | PROT_READ, MAP_SHARED, pfd, 0);
+    headerData = ( rrdbTouchHeader * ) mmap(NULL, sizeof(rrdbTouchHeader), PROT_WRITE | PROT_READ, MAP_SHARED, pfd.data_fd, 0);
     if (headerData == MAP_FAILED) {
       printf("ERROR: Failed to read RRDB file header\n");
       return -1;
@@ -1378,7 +1451,7 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
     munmap( ( char * ) headerData, sizeof(rrdbTouchHeader) );
   }
 
-  if ( RRDBTOUCHV2 != getFileVersion( pfd ) ) {
+  if ( RRDBTOUCHV2 != getFileVersion( pfd.data_fd ) ) {
     printf("ERROR: Bad format for RRDB touch file\n");
     unlockandclose( pfd );
     return -1;
@@ -1413,20 +1486,20 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
         iperiod = ONEHOUR;
       }
 
-      findTouchSet(pfd, pathitem, iperiod, maxsets);
+      findTouchSet(pfd.data_fd, pathitem, iperiod, maxsets);
       perioditem = strtok_r( NULL, ",", &perioditem_save_ptr );
     }
     pathitem = strtok_r( NULL, "/", &pathitem_save_ptr );
   }
 
   /* Remove any sets which haven't been touched for longer than the set size */
-  if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
+  if ( fstat( pfd.data_fd, &sb ) == -1 ) { /* To obtain file size */
     unlockandclose( pfd );
     printf("ERROR: Failed to stat RRDB file (3)\n");
     return -1;
   }
 
-  addr = mmap(NULL, sb.st_size, PROT_WRITE | PROT_READ, MAP_SHARED, pfd, 0);
+  addr = mmap(NULL, sb.st_size, PROT_WRITE | PROT_READ, MAP_SHARED, pfd.data_fd, 0);
   headerData = ( rrdbTouchHeader * ) addr;
   ptr = addr + sizeof( rrdbTouchHeader );
   now = time( NULL );
@@ -1453,7 +1526,7 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
     }
   }
 
-  if ( truncateby > 0 && -1 == ftruncate( pfd, sb.st_size - ( setsize * truncateby ) ) ) {
+  if ( truncateby > 0 && -1 == ftruncate( pfd.data_fd, sb.st_size - ( setsize * truncateby ) ) ) {
     fprintf( stderr, "Failed to truncate file\n" );
   }
 
@@ -1467,18 +1540,19 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
 */
 int runfetch( char *filename, char *xformations, char * cperiod ) {
 
-  int pfd;
   rrdbFile ourFile;
   int retval = 1;
 
-  if( ( pfd = readwriteopenandlock( filename ) ) == -1) {
+  locked_file_t pfd = readopenandlock( filename );
+
+  if( -1 == pfd.data_fd ) {
     printf( "ERROR: failed to open rrdb file '%s'\n", filename );
     return -1;
   }
 
-  switch( getFileVersion( pfd ) ) {
+  switch( getFileVersion( pfd.data_fd ) ) {
     case RRDBV1:
-      if( -1 == readRRDBFile( pfd, &ourFile ) ) break;
+      if( -1 == readRRDBFile( pfd.data_fd, &ourFile ) ) break;
 
       if ( 0 != strlen( xformations ) ) {
         if ( -1 == printRRDBFileXform( &ourFile, atoi( xformations ) ) ) {
@@ -1493,7 +1567,7 @@ int runfetch( char *filename, char *xformations, char * cperiod ) {
       freeRRDBFile( &ourFile );
       break;
     case RRDBTOUCHV2:
-      printRRDBTouchFile( pfd, xformations, cperiod );
+      printRRDBTouchFile( pfd.data_fd, xformations, cperiod );
       break;
     default:
       printf("ERROR: Unknown file format\n");
@@ -1510,13 +1584,13 @@ int runfetch( char *filename, char *xformations, char * cperiod ) {
 */
 int runcreate( char *filename, unsigned int sampleCount, unsigned int setCount, char *xformations ) {
 
-  int pfd;
   if ( 0 >= sampleCount ) {
     printf("ERROR: sample count too small, must be more than zero.\n");
     return -1;
   }
 
-  if ( -1 == ( pfd = initRRDBFile(filename, setCount, sampleCount, xformations)) ) {
+  locked_file_t pfd = initRRDBFile( filename, setCount, sampleCount, xformations);
+  if ( -1 == pfd.data_fd  ) {
     printf( "ERROR: writing db file error" );
     return -1;
   }

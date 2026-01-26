@@ -43,9 +43,6 @@ docker build -t rrdb:app --target app .
 # Build the dev image (with Node, Mocha, faketime)
 docker build -t rrdb:dev --target dev .
 
-# If you want a newer Alpine:
-docker build -t rrdb:dev --target dev --build-arg ALPINE_VERSION=3.21 .
-
 ```
 
 # Test

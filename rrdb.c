@@ -166,8 +166,11 @@ static int lockrelease( int lockfd ) {
     return -1;
 
   /* flock unlock is optional; close() releases it anyway */
-  if ( flock( lockfd, LOCK_UN ) < 0 )
+  if ( flock( lockfd, LOCK_UN ) < 0 ) {
+    close( lockfd );
     return -1;
+  }
+
 
   return close( lockfd );
 }
@@ -208,6 +211,11 @@ locked_file_t readwriteopenandlock( char *  filename ) {
   locked_file_t lf = { .data_fd = -1, .lock_fd = -1 };
   lf.lock_fd = lockacquire( filename, LOCK_EX );
 
+  if( -1 == lf.lock_fd ) {
+    fprintf( stderr, "failed to lock read write rrdb file '%s'\n", filename );
+    return lf;
+  }
+
   lf.data_fd = open( filename, O_RDWR );
 
   if( -1 == lf.data_fd ) {
@@ -227,6 +235,11 @@ locked_file_t readopenandlock( char *  filename ) {
 
   locked_file_t lf = { .data_fd = -1, .lock_fd = -1 };
   lf.lock_fd = lockacquire( filename, LOCK_SH );
+
+  if( -1 == lf.lock_fd ) {
+    fprintf( stderr, "failed to lock read rrdb file '%s'\n", filename );
+    return lf;
+  }
 
   lf.data_fd = open( filename, O_RDONLY );
 
@@ -260,25 +273,32 @@ locked_file_t unlockandclose( locked_file_t lf ) {
  *
  * Written: 9th March 2013 By: Nick Knight
  ************************************************************************************/
-int freeRRDBFile(rrdbFile *fileData)
-{
+int freeRRDBFile(rrdbFile *fileData) {
     unsigned int i;
 
-    if ( fileData->times )
-    {
+    if ( fileData->times ) {
         free(fileData->times);
+        fileData->times = NULL;
     }
 
-    for ( i = 0 ; i < fileData->header.setCount; i++ )
-    {
+    unsigned int it = fileData->header.setCount;
+    if( it > MAXNUMSETS ) it = MAXNUMSETS;
+
+    for ( i = 0 ; i < it; i++ ) {
          free(fileData->sets[i]);
+         fileData->sets[i] = NULL;
     }
 
-    for ( i = 0 ; i < fileData->xformheader.xformCount; i++ )
-    {
+    for ( i = 0 ; i < fileData->xformheader.xformCount; i++ ) {
         free(fileData->xformdata[i]);
         free(fileData->xformtimes[i]);
+
+        fileData->xformdata[i] = NULL;
+        fileData->xformtimes[i] = NULL;
     }
+
+    fileData->header.setCount = 0;
+    fileData->xformheader.xformCount = 0;
 
     return 1;
 }
@@ -481,7 +501,7 @@ locked_file_t initRRDBFile(char *filename, unsigned int setCount, unsigned int s
     result = strtok( NULL, delims );
     if ( NULL == result ) {
       fprintf( stderr, "Failed to get timespan\n" );
-      unlockandclose( pfd );
+      pfd = unlockandclose( pfd );
       return pfd;
     }
 
@@ -506,7 +526,7 @@ locked_file_t initRRDBFile(char *filename, unsigned int setCount, unsigned int s
       result = strtok( NULL, delims );
       if ( NULL == result ) {
         fprintf( stderr, "We really need an index for the xform\n" );
-        unlockandclose( pfd );
+        pfd = unlockandclose( pfd );
         return pfd;
       }
       fileData.xforms[i].setIndex = atoi(result);
@@ -526,7 +546,7 @@ locked_file_t initRRDBFile(char *filename, unsigned int setCount, unsigned int s
   }
 
   if ( -1 == writeRRDBFile( pfd.data_fd, &fileData ) ) {
-    unlockandclose( pfd );
+    pfd = unlockandclose( pfd );
   }
   freeRRDBFile(&fileData);
 
@@ -615,8 +635,8 @@ int writeRRDBFile(int pfd, rrdbFile *fileData)
  *
  * Written: 9th March 2013 By: Nick Knight
  ************************************************************************************/
-int readRRDBFile(int pfd, rrdbFile *fileData)
-{
+int readRRDBFile(int pfd, rrdbFile *fileData) {
+
   ssize_t amount_read = 0;
   long long totalSizeRequired;
   long long setCountSize;
@@ -626,6 +646,11 @@ int readRRDBFile(int pfd, rrdbFile *fileData)
 
   if ( sizeof(rrdbHeader) != amount_read ) {
     printf("ERROR: failed to read a RRDB header - there must be one??\n");
+    return -1;
+  }
+
+  if( fileData->header.setCount > MAXNUMSETS ) {
+    printf("ERROR: RRDB header data corrupt\n");
     return -1;
   }
 
@@ -737,6 +762,7 @@ int printRRDBFileInfo(char *filename)
   }
 
   if( -1 == readRRDBFile(pfd.data_fd, &fileData) ) {
+    freeRRDBFile(&fileData);
     unlockandclose( pfd );
     return -1;
   }
@@ -926,10 +952,11 @@ finishnomodify:
  ************************************************************************************/
 int updateRRDBFile(char *filename, char* vals) {
   rrdbFile fileData;
-  unsigned int i;
   char *result = NULL;
   const char delims[] = ":";
   struct timeval t1;
+
+  memset( &fileData, 0, sizeof( rrdbFile ) );
 
   struct timeval xformstart;
   rrdbNumber xformResult;
@@ -942,7 +969,8 @@ int updateRRDBFile(char *filename, char* vals) {
   locked_file_t pfd = readwriteopenandlock( filename );
 
   if( -1 == pfd.data_fd ) {
-    printf("ERROR: failed to open %s for O_RDWR\n", filename);
+    fprintf( stderr, "failed to open %s for O_RDWR\n", filename );
+    printf( "ERROR: failed to open %s for O_RDWR\n", filename );
     return -1;
   }
 
@@ -951,7 +979,9 @@ int updateRRDBFile(char *filename, char* vals) {
     sure the set count is correct
     */
   if( -1 == readRRDBFile(pfd.data_fd, &fileData) ) {
+    fprintf( stderr, "failed to read %s\n", filename );
     unlockandclose( pfd );
+    freeRRDBFile(&fileData);
     return -1;
   }
 
@@ -962,7 +992,7 @@ int updateRRDBFile(char *filename, char* vals) {
 
   /*
     times
-    */
+  */
 
   fileData.times[fileData.header.windowPosition].valid = 1;
   gettimeofday(&t1, NULL);
@@ -976,7 +1006,7 @@ int updateRRDBFile(char *filename, char* vals) {
     */
 
   result = strtok( vals, delims );
-  for ( i = 0 ; i < fileData.header.setCount; i++ ) {
+  for ( unsigned int i = 0 ; i < fileData.header.setCount; i++ ) {
     if ( NULL != result )
       fileData.sets[i][fileData.header.windowPosition] = atof(result);
     else
@@ -990,7 +1020,7 @@ int updateRRDBFile(char *filename, char* vals) {
     */
   current_time = t1.tv_sec;
 
-  for ( i = 0; i < fileData.xformheader.xformCount; i++) {
+  for ( unsigned int i = 0, outindex = 0; i < fileData.xformheader.xformCount; i++) {
     current_tm = gmtime(&current_time);
 
     switch (fileData.xforms[i].period) {
@@ -1065,68 +1095,77 @@ int updateRRDBFile(char *filename, char* vals) {
       movedon = TRUE;
     }
 
-    switch (fileData.xforms[i].calc) {
-      case RRDBMAX:
-        if( TRUE == movedon )
-          xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-        else
-          xformResult = MAX( fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition],
-                              fileData.xformdata[i][writeWindowPosition] );
-        break;
+    unsigned int setindex = fileData.xforms[i].setIndex;
 
-      case RRDBMIN:
-        if( TRUE == movedon )
-          xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-        else
-          xformResult = MIN( fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition],
-                              fileData.xformdata[i][writeWindowPosition] );
-        break;
+    if( setindex > MAXNUMSETS || NULL == fileData.sets[ setindex ] ) {
+      fprintf( stderr, "Invalid xform - xforms incorrectly setup index at %i  with setcount %i in file %s (ignoring)\n", setindex, fileData.header.setCount, filename );
+    } else {
 
-      case RRDBCOUNT:
-        if( TRUE == movedon )
-          xformResult = 1;
-        else
-          xformResult = fileData.xformdata[i][writeWindowPosition] + 1;
-
-        break;
-
-      case RRDBMEAN:
-      {
-        unsigned int countWindowPosition = (writeWindowPosition + 1) % fileData.header.sampleCount;
-        if( TRUE == movedon ) {
-          /* We use the next slot to store our running count so we can add to the average - and hide it */
-          fileData.xformtimes[i][countWindowPosition].valid = FALSE;
-          fileData.xformdata[i][countWindowPosition] = 1;
-          xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-        } else {
-          rrdbNumber countinmean = fileData.xformdata[i][countWindowPosition];
-          if( countinmean <= 0 ) countinmean = 1; /* allow for corruption */
-          rrdbNumber reversemean = fileData.xformdata[i][writeWindowPosition] * countinmean;
-          rrdbNumber newval = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-          xformResult = ( reversemean + newval ) /
-                        ( countinmean + 1 );
-
-          fileData.xformdata[i][countWindowPosition]++;
-        }
-        break;
-      }
-      case RRDBSUM:
-        if( TRUE == movedon )
-          xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition];
-        else
-          xformResult = fileData.sets[fileData.xforms[i].setIndex][fileData.header.windowPosition] +
-                              fileData.xformdata[i][writeWindowPosition];
-        break;
-
-      default:
+      switch (fileData.xforms[i].calc) {
+        case RRDBMAX:
+          if( TRUE == movedon )
+            xformResult = fileData.sets[setindex][fileData.header.windowPosition];
+          else
+            xformResult = MAX( fileData.sets[setindex][fileData.header.windowPosition],
+                                fileData.xformdata[i][writeWindowPosition] );
           break;
-    }
 
-    fileData.xformdata[i][writeWindowPosition] = xformResult;
-    fileData.xformtimes[i][writeWindowPosition].time = xformstart.tv_sec;
-    fileData.xformtimes[i][writeWindowPosition].uSecs = 0;
-    fileData.xformtimes[i][writeWindowPosition].valid = TRUE;
-    fileData.xforms[i].windowPosition = writeWindowPosition;
+        case RRDBMIN:
+          if( TRUE == movedon )
+            xformResult = fileData.sets[setindex][fileData.header.windowPosition];
+          else
+            xformResult = MIN( fileData.sets[setindex][fileData.header.windowPosition],
+                                fileData.xformdata[i][writeWindowPosition] );
+          break;
+
+        case RRDBCOUNT:
+          if( TRUE == movedon )
+            xformResult = 1;
+          else
+            xformResult = fileData.xformdata[i][writeWindowPosition] + 1;
+
+          break;
+
+        case RRDBMEAN:
+        {
+          unsigned int countWindowPosition = (writeWindowPosition + 1) % fileData.header.sampleCount;
+          if( TRUE == movedon ) {
+            /* We use the next slot to store our running count so we can add to the average - and hide it */
+            fileData.xformtimes[i][countWindowPosition].valid = FALSE;
+            fileData.xformdata[i][countWindowPosition] = 1;
+            xformResult = fileData.sets[setindex][fileData.header.windowPosition];
+          } else {
+            rrdbNumber countinmean = fileData.xformdata[i][countWindowPosition];
+            if( countinmean <= 0 ) countinmean = 1; /* allow for corruption */
+            rrdbNumber reversemean = fileData.xformdata[i][writeWindowPosition] * countinmean;
+            rrdbNumber newval = fileData.sets[setindex][fileData.header.windowPosition];
+            xformResult = ( reversemean + newval ) /
+                          ( countinmean + 1 );
+
+            fileData.xformdata[i][countWindowPosition]++;
+          }
+          break;
+        }
+        case RRDBSUM:
+          if( TRUE == movedon )
+            xformResult = fileData.sets[setindex][fileData.header.windowPosition];
+          else
+            xformResult = fileData.sets[setindex][fileData.header.windowPosition] +
+                                fileData.xformdata[i][writeWindowPosition];
+          break;
+
+        default:
+            break;
+      }
+
+      fileData.xformdata[ outindex ][ writeWindowPosition ] = xformResult;
+      fileData.xformtimes[ outindex ][ writeWindowPosition ].time = xformstart.tv_sec;
+      fileData.xformtimes[ outindex ][ writeWindowPosition ].uSecs = 0;
+      fileData.xformtimes[ outindex ][ writeWindowPosition ].valid = TRUE;
+      fileData.xforms[ outindex ].windowPosition = writeWindowPosition;
+
+      outindex++;
+    }
   }
 
   /* Now write it */

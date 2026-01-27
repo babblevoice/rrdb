@@ -502,6 +502,7 @@ locked_file_t initRRDBFile(char *filename, unsigned int setCount, unsigned int s
     if ( NULL == result ) {
       fprintf( stderr, "Failed to get timespan\n" );
       pfd = unlockandclose( pfd );
+      freeRRDBFile(&fileData);
       return pfd;
     }
 
@@ -527,6 +528,7 @@ locked_file_t initRRDBFile(char *filename, unsigned int setCount, unsigned int s
       if ( NULL == result ) {
         fprintf( stderr, "We really need an index for the xform\n" );
         pfd = unlockandclose( pfd );
+        freeRRDBFile(&fileData);
         return pfd;
       }
       fileData.xforms[i].setIndex = atoi(result);
@@ -660,6 +662,7 @@ int readRRDBFile(int pfd, rrdbFile *fileData) {
   fileData->times = malloc(totalSizeRequired);
   if ( totalSizeRequired != read(pfd, fileData->times, totalSizeRequired) ) {
     printf("ERROR: failed to read time data from RRDB file\n");
+    freeRRDBFile(fileData);
     return -1;
   }
 
@@ -670,6 +673,7 @@ int readRRDBFile(int pfd, rrdbFile *fileData) {
     fileData->sets[i] = malloc(setCountSize);
     if ( setCountSize != read(pfd, fileData->sets[i], setCountSize) ) {
       printf("ERROR: failed to read set data from RRDB file\n");
+      freeRRDBFile(fileData);
       return -1;
     }
   }
@@ -678,6 +682,7 @@ int readRRDBFile(int pfd, rrdbFile *fileData) {
   fileData->xformheader.xformCount = 0;*/
   if ( sizeof(rrdbXformsHeader) != read(pfd, &fileData->xformheader, sizeof(rrdbXformsHeader)) ) {
     printf("ERROR: failed to read xform header from RRDB file\n");
+    freeRRDBFile(fileData);
     return -1;
   }
 
@@ -685,12 +690,14 @@ int readRRDBFile(int pfd, rrdbFile *fileData) {
   for ( i = 0 ; i < fileData->xformheader.xformCount; i++ ) {
     if ( sizeof(rrdbXformHeader) != read(pfd, &fileData->xforms[i], sizeof(rrdbXformHeader))) {
       printf("ERROR: failed to read xform header data from RRDB file\n");
+      freeRRDBFile(fileData);
       return -1;
     }
 
     fileData->xformtimes[i] = malloc(totalSizeRequired);
     if ( totalSizeRequired != read(pfd, fileData->xformtimes[i], totalSizeRequired) ) {
       printf("ERROR: failed to read xform time data from RRDB file\n");
+      freeRRDBFile(fileData);
       return -1;
     }
 
@@ -698,6 +705,7 @@ int readRRDBFile(int pfd, rrdbFile *fileData) {
     fileData->xformdata[i] = malloc(setCountSize);
     if ( setCountSize != read(pfd, fileData->xformdata[i], setCountSize) ) {
       printf("ERROR: failed to read xform data from RRDB file\n");
+      freeRRDBFile(fileData);
       return -1;
     }
   }
@@ -762,7 +770,6 @@ int printRRDBFileInfo(char *filename)
   }
 
   if( -1 == readRRDBFile(pfd.data_fd, &fileData) ) {
-    freeRRDBFile(&fileData);
     unlockandclose( pfd );
     return -1;
   }
@@ -981,7 +988,6 @@ int updateRRDBFile(char *filename, char* vals) {
   if( -1 == readRRDBFile(pfd.data_fd, &fileData) ) {
     fprintf( stderr, "failed to read %s\n", filename );
     unlockandclose( pfd );
-    freeRRDBFile(&fileData);
     return -1;
   }
 
@@ -1323,9 +1329,9 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
     return -1;
   }
 
-  addr = mmap(NULL, sb.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, pfd, 0);
-  if (addr == MAP_FAILED)
-  {
+  size_t mappedsize = sb.st_size;
+  addr = mmap(NULL, mappedsize, PROT_READ | PROT_WRITE, MAP_SHARED, pfd, 0);
+  if (addr == MAP_FAILED) {
     printf("ERROR: error accessing data file.\n");
     return -1;
   }
@@ -1358,7 +1364,7 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
     }
 
     retval = touchSet( header, setHeader, ( rrdbInt * ) ( setHeader + 1 ) );
-    munmap( ( char * ) addr, sb.st_size );
+    munmap( ( char * ) addr, mappedsize );
     return retval;
 
     continueloop:
@@ -1383,14 +1389,16 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
 
     if ( fstat( pfd, &sb ) == -1 ) {/* To obtain file size */
       printf( "ERROR: failed to stat file \n" );
+      munmap( ( char * ) addr, mappedsize );
       return -1;
     }
 
-    munmap( ( char * ) addr, sb.st_size );
+    munmap( ( char * ) addr, mappedsize );
     posix_fallocate( pfd, sb.st_size, sizeof( rrdbTouchSet ) + ( sizeof( rrdbInt ) * samplesPerSet ) );
 
     if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
       printf( "ERROR: failed to stat file\n" );
+      munmap( ( char * ) addr, mappedsize );
       return -1;
     }
 
@@ -1478,6 +1486,7 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
 
     headerData = ( rrdbTouchHeader * ) mmap(NULL, sizeof(rrdbTouchHeader), PROT_WRITE | PROT_READ, MAP_SHARED, pfd.data_fd, 0);
     if (headerData == MAP_FAILED) {
+      unlockandclose( pfd );
       printf("ERROR: Failed to read RRDB file header\n");
       return -1;
     }
@@ -1603,7 +1612,6 @@ int runfetch( char *filename, char *xformations, char * cperiod ) {
         }
       }
 
-      freeRRDBFile( &ourFile );
       break;
     case RRDBTOUCHV2:
       printRRDBTouchFile( pfd.data_fd, xformations, cperiod );

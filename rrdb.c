@@ -769,6 +769,7 @@ int printRRDBFileInfo(char *filename)
     return 1;
   }
 
+  memset( &fileData, 0, sizeof( rrdbFile ) );
   if( -1 == readRRDBFile(pfd.data_fd, &fileData) ) {
     unlockandclose( pfd );
     return -1;
@@ -863,6 +864,7 @@ int modifyRRDBFile(char *filename, char* vals, char* xform) {
     return -1;
   }
 
+  memset( &fileData, 0, sizeof( rrdbFile ) );
   if( -1 == readRRDBFile(pfd.data_fd, &fileData) ) {
     unlockandclose( pfd );
     return -1;
@@ -1398,7 +1400,6 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
 
     if ( fstat( pfd, &sb ) == -1 ) { /* To obtain file size */
       printf( "ERROR: failed to stat file\n" );
-      munmap( ( char * ) addr, mappedsize );
       return -1;
     }
 
@@ -1548,6 +1549,12 @@ int touchRRDBFile(char *filename, char *path, char * period, unsigned int maxset
   }
 
   addr = mmap(NULL, sb.st_size, PROT_WRITE | PROT_READ, MAP_SHARED, pfd.data_fd, 0);
+  if (addr == MAP_FAILED) {
+    unlockandclose( pfd );
+    printf("ERROR: Failed to mmap RRDB file data\n");
+    return -1;
+  }
+
   headerData = ( rrdbTouchHeader * ) addr;
   ptr = addr + sizeof( rrdbTouchHeader );
   now = time( NULL );
@@ -1600,6 +1607,7 @@ int runfetch( char *filename, char *xformations, char * cperiod ) {
 
   switch( getFileVersion( pfd.data_fd ) ) {
     case RRDBV1:
+      memset( &ourFile, 0, sizeof( rrdbFile ) );
       if( -1 == readRRDBFile( pfd.data_fd, &ourFile ) ) break;
 
       if ( 0 != strlen( xformations ) ) {

@@ -832,5 +832,20 @@ describe("rrdb touch", function () {
     ].join("\n")
 
     expect( stdout.trim() ).to.equal( expected )
+
+    const infoflags = [
+      "--command=info",
+      "--dir=/tmp/",
+      "--filename=" + fn
+    ]
+
+    const { stdout: stdoutinfo } = await execFileAsync( rrbdbin, infoflags, { env } )
+
+    const infoexpected = `2:1:10
+test:3600`
+
+    expect( stdoutinfo.trim() ).to.equal( infoexpected )
+
+
   } )
 } )

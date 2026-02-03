@@ -744,9 +744,10 @@ int printRRDBFileInfo(char *filename)
       return -1;
     }
 
-    addr = mmap(NULL, sb.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, pfd.data_fd, 0);
+    addr = mmap(NULL, sb.st_size, PROT_READ, MAP_SHARED, pfd.data_fd, 0);
     if (addr == MAP_FAILED) {
       printf("ERROR: error accessing data file.\n");
+      fprintf(stderr, "error - mmap failed while accessing data file for printing: %s (errno=%d)\n", strerror(errno), errno);
       unlockandclose( pfd );
       return -1;
     }
@@ -1334,7 +1335,7 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
   size_t mappedsize = sb.st_size;
   addr = mmap(NULL, mappedsize, PROT_READ | PROT_WRITE, MAP_SHARED, pfd, 0);
   if (addr == MAP_FAILED) {
-    printf("ERROR: error accessing data file.\n");
+    printf("ERROR: error accessing data file (1).\n");
     return -1;
   }
 
@@ -1405,7 +1406,7 @@ int findTouchSet(int pfd, char *path, unsigned int period, unsigned int maxsets)
 
     addr = mmap(NULL, sb.st_size, PROT_WRITE | PROT_READ, MAP_SHARED, pfd, 0);
     if (addr == MAP_FAILED) {
-      printf("ERROR: error accessing data file.\n");
+      printf("ERROR: error accessing data file (2).\n");
       return -1;
     }
 

@@ -71,6 +71,19 @@ describe( "rrdb xform suite", function () {
     return parseValue(line)
   }
 
+  async function fetchinfo() {
+    const out = await rrdb(
+      [
+        "--command=info",
+        `--dir=${dir}/`,
+        `--filename=${filename}`,
+      ],
+      { env }
+    )
+
+    return out.trim().split("\n") ?? []
+  }
+
   before(async function () {
     // build xforms list exactly like the Python intended (fixed the missing colon bug)
     // 0 RRDBCOUNT:ONEDAY
@@ -189,5 +202,27 @@ describe( "rrdb xform suite", function () {
   it("xform 8 RRDBMAX:QUARTERHOUR:0 equals max of set 0", async function () {
     const val = await fetchXform(8)
     expect(val).to.equal(max0)
+  })
+
+  it("xform rrdb file info", async function () {
+    const val = await fetchinfo()
+
+    const expected = [
+      'Version is 1',
+      'Number of sets 2',
+      'Number of samples 500',
+      'Current window position 0',
+      'Contains #9 xformations',
+      'RRDBCOUNT:ONEDAY',
+      'RRDBCOUNT:FIVEMINUTE',
+      'RRDBSUM:FIVEMINUTE',
+      'RRDBMAX:FIVEMINUTE',
+      'RRDBMEAN:FIVEMINUTE',
+      'RRDBMEAN:ONEDAY',
+      'RRDBMEAN:FIVEMINUTE',
+      'RRDBMEAN:ONEDAY',
+      'RRDBMAX:QUARTERHOUR'
+    ]
+    expect(val).to.eql(expected)
   })
 })

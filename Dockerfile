@@ -17,7 +17,7 @@ RUN make clean && make && make install
 
 
 # ===== dev (fat, for hacking & tests) =====
-FROM alpine:${ALPINE_VERSION} AS dev
+FROM node:26-alpine3.24 AS dev
 LABEL org.opencontainers.image.title="rrdb-dev" \
       org.opencontainers.image.description="Dev/Test image with Node, Mocha, faketime"
 
@@ -27,9 +27,9 @@ WORKDIR /workspace
 COPY . .
 
 # Tools you actually use while fixing things
-# nodejs + npm for tests, libfaketime for time warping, build tools if you want to rebuild in-container
+# node + npm come from the base image; libfaketime for time warping, build tools if you want to rebuild in-container
 RUN apk add --no-cache \
-      nodejs npm git \
+      git \
       alpine-sdk make \
       libfaketime; \
       npm ci

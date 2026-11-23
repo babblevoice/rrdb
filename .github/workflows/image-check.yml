@@ -93,6 +93,13 @@ defaults:
   run:
     shell: bash
 
+env:
+  # >>> settings: submodules, as in release.yml
+  # release.yml's SUBMODULES, written again: "false", or "recursive" when the
+  # Dockerfile COPYs a git submodule.
+  SUBMODULES: "false"
+  # <<< settings
+
 jobs:
   build:
     name: Image builds (${{ matrix.platform }})
@@ -162,6 +169,13 @@ jobs:
           # base itself.
           ref: refs/pull/${{ github.event.number }}/merge
           persist-credentials: false
+          # As release.yml builds: SUBMODULES (above) says whether to fetch
+          # git submodules. This file is main's copy, so a pull request cannot
+          # turn it on. Where it is on, a fork's pull request names its own
+          # submodules, fetched with the same read-only token, which
+          # actions/checkout sends only to github.com and removes afterwards,
+          # onto the runner that builds the fork's code anyway.
+          submodules: ${{ env.SUBMODULES }}
           # Deliberate opt-in, defensible for the reasons pr-checks.yml gives —
           # no secrets, a read-only token, no cache — and here nothing is pushed.
           # Read pr-checks.yml's note before adding a step: this flag will not warn

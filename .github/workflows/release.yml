@@ -113,6 +113,15 @@ env:
   STARTUP_PROBE: bash -c 'exec 3<>/dev/tcp/127.0.0.1/13900 && echo touch startup-check.rrdb 1 10 startup FIVEMINUTE >&3 && timeout 5 head -n 1 <&3 | grep -qx OK'
   STARTUP_SECONDS: "60"
   # <<< settings
+  # >>> settings: submodules, for the image build
+  # Whether the image build's checkout fetches git submodules: "false", or
+  # "recursive" when the Dockerfile COPYs one (projectrtp's libilbc). Only a
+  # submodule this repository's token can read can be fetched: a public
+  # repository over https. A private one (babbledb) or an ssh URL fails the
+  # checkout, so a repository with one of those that the image does not need
+  # keeps "false". image-check.yml has the same setting, and they must match.
+  SUBMODULES: "false"
+  # <<< settings
 
 jobs:
   # The refusals, before anything expensive runs.
@@ -340,6 +349,9 @@ jobs:
         with:
           # Nothing after checkout uses git, so don't leave the token in .git/config.
           persist-credentials: false
+          # The build context is the checkout, so a Dockerfile that COPYs a
+          # submodule needs it there. SUBMODULES (above) says whether to.
+          submodules: ${{ env.SUBMODULES }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

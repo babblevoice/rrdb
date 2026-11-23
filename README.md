@@ -1,5 +1,7 @@
 # RRDB
 
+![Nightly tests](https://github.com/babblevoice/rrdb/actions/workflows/nightly.yml/badge.svg)
+
 Round Robin Database designed for speed and efficiency. Low memory, small disk footprint. High speed for both reading and writing.
 
 ## Introduction
@@ -49,6 +51,14 @@ docker build -t rrdb:dev --target dev .
 
 NB: if selinux is running - it might need to be disabled as docker needs access to the pwd: sudo setenforce 0
 
+The suite, as CI runs it (on a release tag, nightly, and on every pull request):
+
+```bash
+docker build --target dev -t rrdb:dev . && docker run --rm --network none rrdb:dev npm test
+```
+
+To play with the source:
+
 ```bash
 # if you intend to run multiple times whilst playing with source
 docker run -it --rm -v "$PWD":/workspace rrdb:dev sh
@@ -62,12 +72,17 @@ docker run -it --rm -v "$PWD":/workspace rrdb:dev npm test
 
 There is an image built on Alpine Linux on Docker hub.
 
-## Build
+## Release
 
-Note: github workflow will build on release. To build test release or manually release:
+An image is published only by a release tag, `vX.Y.Z` or `vX.Y.Z-rc.N`, under
+its exact version and nothing else (`v1.3.0` publishes `tinpotnick/rrdb:1.3.0`,
+for amd64 and arm64), once the suite has passed and the image has started and
+answered. Nothing else publishes one: not a merge, not a pull request, and not
+a push by hand, which would take the version and make the real tag's release
+refuse it. AGENTS.md says who cuts a release and how.
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t tinpotnick/rrdb:<version> . --push
+git tag v1.3.0-rc.1 && git push origin v1.3.0-rc.1
 ```
 
 # Commands
